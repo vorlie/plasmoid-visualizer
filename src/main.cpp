@@ -14,7 +14,7 @@
 int main() {
     if (!glfwInit()) return -1;
 
-    GLFWwindow* window = glfwCreateWindow(1280, 720, "VisualizerV2 - Sound Keys Style", NULL, NULL);
+    GLFWwindow* window = glfwCreateWindow(1280, 720, "Plasmoid Visualizer Standalone", NULL, NULL);
     if (!window) {
         glfwTerminate();
         return -1;
