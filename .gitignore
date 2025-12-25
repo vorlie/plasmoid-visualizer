@@ -1,6 +1,9 @@
 # Build directories
 build/
 build_plasma/
+build_release/
+build_plasma_release/
+release_assets/
 bin/
 lib/
 
@@ -20,6 +23,7 @@ Makefile
 
 # Compiled binaries
 VisualizerV2
+PlasmoidVisualizer
 *.so
 *.a
 *.o

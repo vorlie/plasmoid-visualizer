@@ -66,6 +66,27 @@ kpackagetool6 --type Plasma/Applet --upgrade plasma_widget
 kbuildsycoca6
 ```
 
+---
+
+## 3. Creating Release Assets
+
+If you want to create a package for others to download, you can use the provided packaging script:
+
+```bash
+# Make the script executable
+chmod +x package.sh
+
+# Run the script
+./package.sh
+```
+
+This will create a `release_assets/` directory containing:
+- `plasmoid-visualizer.plasmoid`: The ready-to-install Plasma widget.
+- `plasmoid-visualizer-standalone-linux.zip`: The standalone application binary.
+
+---
+
+## Features
 ### Usage
 1. Right-click desktop -> **Enter Edit Mode**.
 2. Click **Add Widgets**.
