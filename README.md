@@ -120,3 +120,7 @@ This project wouldn't be possible without these amazing open-source libraries:
 ## License
 
 This project is licensed under the **MIT License** - see the [LICENSE](LICENSE) file for details.
+
+---
+
+Check out the [RELEASE_NOTES.md](RELEASE_NOTES.md) for the latest updates!
