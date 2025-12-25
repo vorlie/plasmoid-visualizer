@@ -7,7 +7,7 @@
         ],
         "Category": "Multimedia",
         "Description": "Audio Visualizer Widget",
-        "Icon": "audio-x-generic",
+        "Icon": "icon",
         "Id": "org.kde.plasmoid-visualizer",
         "Name": "Plasmoid Visualizer",
         "Version": "1.0"

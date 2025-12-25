@@ -1,4 +1,4 @@
-# Plasmoid Visualizer
+# ![Plasmoid Visualizer Logo](icon.png) Plasmoid Visualizer
 
 A high-performance C++ Audio Visualizer with a standalone OpenGL application and a native KDE Plasma 6 widget.
 

@@ -35,7 +35,8 @@ echo "Packaging Plasma widget..."
 cp $PLASMA_BUILD_DIR/libvisualizerv2plugin.so plasma_widget/contents/ui/
 # Create the .plasmoid file (it's just a zip)
 cd plasma_widget
-zip -r ../$ASSETS_DIR/$PROJECT_NAME.plasmoid . -x "src/*" "CMakeLists.txt"
+zip -r ../$ASSETS_DIR/$PROJECT_NAME.plasmoid . -x "src/*" "CMakeLists.txt" "icon.png"
+zip -u ../$ASSETS_DIR/$PROJECT_NAME.plasmoid icon.png
 cd ..
 
 # 5. Package Standalone Binary
