@@ -8,8 +8,8 @@
         "Category": "Multimedia",
         "Description": "Audio Visualizer Widget",
         "Icon": "audio-x-generic",
-        "Id": "com.vorlie.visualizerv2",
-        "Name": "Visualizer V2",
+        "Id": "org.kde.plasmoid-visualizer",
+        "Name": "Plasmoid Visualizer",
         "Version": "1.0"
     },
     "KPackageStructure": "Plasma/Applet",

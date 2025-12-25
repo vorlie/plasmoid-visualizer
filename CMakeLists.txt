@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.10)
-project(VisualizerV2)
+project(PlasmoidVisualizer)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -24,10 +24,10 @@ list(APPEND SOURCES
     "external/imgui/imgui_impl_opengl3.cpp"
 )
 
-add_executable(VisualizerV2 ${SOURCES})
+add_executable(PlasmoidVisualizer ${SOURCES})
 
 # Link libraries
-target_link_libraries(VisualizerV2 
+target_link_libraries(PlasmoidVisualizer 
     OpenGL::GL 
     glfw 
     GLEW::GLEW 

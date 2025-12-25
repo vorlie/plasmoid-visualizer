@@ -1,4 +1,4 @@
-# Visualizer V2
+# Plasmoid Visualizer
 
 A high-performance C++ Audio Visualizer with a standalone OpenGL application and a native KDE Plasma 6 widget.
 
@@ -29,7 +29,7 @@ cmake ..
 make -j$(nproc)
 
 # Run the application
-./VisualizerV2
+./PlasmoidVisualizer
 ```
 
 ---
@@ -69,7 +69,7 @@ kbuildsycoca6
 ### Usage
 1. Right-click desktop -> **Enter Edit Mode**.
 2. Click **Add Widgets**.
-3. Search for **"Visualizer V2"** and drag it to your desktop.
+3. Search for **"Plasmoid Visualizer"** and drag it to your desktop.
 4. If it doesn't appear or shows an error, restart Plasma:
    ```bash
    plasmashell --replace &
