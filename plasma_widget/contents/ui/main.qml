@@ -20,7 +20,7 @@ PlasmoidItem {
             setFalloff(0.5)
             setBarHeight(0.1)
             // Start capture on the 5th device (index 4)
-            startCapture(4)
+            startCapture(-1)
         }
     }
 
