@@ -19,10 +19,7 @@ public:
     explicit AudioEngineWrapper(QObject* parent = nullptr);
     ~AudioEngineWrapper();
 
-    Q_INVOKABLE bool loadFile(const QString& filePath);
     Q_INVOKABLE bool startCapture(int deviceIndex = -1);
-    Q_INVOKABLE void play();
-    Q_INVOKABLE void stop();
     Q_INVOKABLE void stopCapture();
     Q_INVOKABLE void setGain(float gain);
     Q_INVOKABLE void setFalloff(float falloff);

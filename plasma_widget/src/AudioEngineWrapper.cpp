@@ -15,35 +15,12 @@ AudioEngineWrapper::~AudioEngineWrapper() {
     m_audioEngine->stop();
 }
 
-bool AudioEngineWrapper::loadFile(const QString& filePath) {
-    QString path = filePath;
-    if (path.startsWith("file://")) {
-        path = QUrl(path).toLocalFile();
-    }
-    
-    bool success = m_audioEngine->loadFile(path.toStdString());
-    if (success) {
-        emit durationChanged();
-    }
-    return success;
-}
-
 bool AudioEngineWrapper::startCapture(int deviceIndex) {
     auto devices = m_audioEngine->getAvailableDevices(true);
     if (deviceIndex >= 0 && deviceIndex < (int)devices.size()) {
         return m_audioEngine->startCapture(&devices[deviceIndex].id);
     }
     return m_audioEngine->startCapture(nullptr); 
-}
-
-void AudioEngineWrapper::play() {
-    m_audioEngine->play();
-    emit isPlayingChanged();
-}
-
-void AudioEngineWrapper::stop() {
-    m_audioEngine->stop();
-    emit isPlayingChanged();
 }
 
 void AudioEngineWrapper::stopCapture() {

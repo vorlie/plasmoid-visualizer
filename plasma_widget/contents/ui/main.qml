@@ -76,29 +76,6 @@ PlasmoidItem {
                     text: "Refresh"
                     onClicked: deviceCombo.model = audioEngine.getCaptureDevices()
                 }
-
-                Button {
-                    text: audioEngine.isPlaying ? "Stop" : "Play"
-                    onClicked: {
-                        if (audioEngine.isPlaying) {
-                            audioEngine.stop()
-                        } else {
-                            audioEngine.play()
-                        }
-                    }
-                }
-
-                Button {
-                    text: "Live Mode"
-                    onClicked: audioEngine.startCapture("")
-                }
-                
-                TextField {
-                    id: pathInput
-                    placeholderText: "Path to audio file..."
-                    Layout.preferredWidth: 200
-                    onAccepted: audioEngine.loadFile(text)
-                }
             }
         }
     }

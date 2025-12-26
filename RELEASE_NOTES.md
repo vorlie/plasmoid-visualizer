@@ -1,3 +1,12 @@
+# 💎 Plasmoid Visualizer v1.1 - Refined
+
+This update focuses on polishing the user experience.
+
+## 🧹 Streamlined Widget Experience
+- **Focused on Live Mode**: Removed the file playback and path input from the Plasma widget. This simplifies the UI and focuses on the widget's primary purpose: real-time system audio visualization.
+- **Cleaner UI**: The widget now only shows the essential controls (Device Selection and Refresh), leaving more room for the beautiful spectrum bars.
+
+---
 # 🚀 Plasmoid Visualizer v1.0 - Initial Release
 
 Welcome to the first official release of **Plasmoid Visualizer**! 🎵✨
