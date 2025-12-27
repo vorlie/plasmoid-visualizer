@@ -12,6 +12,7 @@ public:
 
     void render(const std::vector<float>& magnitudes);
     void setHeightScale(float scale) { m_heightScale = scale; }
+    void setColor(float r, float g, float b, float a);
 
 private:
     GLuint m_shaderProgram;

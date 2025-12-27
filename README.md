@@ -68,25 +68,6 @@ kbuildsycoca6
 
 ---
 
-## 3. Creating Release Assets
-
-If you want to create a package for others to download, you can use the provided packaging script:
-
-```bash
-# Make the script executable
-chmod +x package.sh
-
-# Run the script
-./package.sh
-```
-
-This will create a `release_assets/` directory containing:
-- `plasmoid-visualizer.plasmoid`: The ready-to-install Plasma widget.
-- `plasmoid-visualizer-standalone-linux.zip`: The standalone application binary.
-
----
-
-## Features
 ### Usage
 1. Right-click desktop -> **Enter Edit Mode**.
 2. Click **Add Widgets**.
@@ -99,9 +80,14 @@ This will create a `release_assets/` directory containing:
 ---
 
 ## Features
-- **Standalone**: File playback, Live Mode (System Audio), Test Tone, adjustable Gain/Falloff/Bar Height.
-- **Widget**: Native Plasma 6 support, real-time capture, device selection, optimized defaults.
-- **Visuals**: Logarithmic frequency mapping, spatial smoothing, 256 bars.
+- **Modular Standalone Editor**: A powerful OpenGL application with a window-based UI for deep customization.
+- **Multi-Layer System**: Stack multiple visualizer layers with independent settings (Gain, Falloff, Frequency Range).
+- **Customizable Aesthetics**: Per-layer color selection and bar height scaling.
+- **High-Resolution Analysis**: Powered by a C++ backend with an 8192-sample FFT window for precise frequency detection.
+- **Logarithmic Mapping**: Bars are naturally distributed across the spectrum.
+- **Trap Nation Style Smoothing**: Custom temporal smoothing and spatial neighbor-averaging.
+- **Real-Time System Capture**: Listen directly to system audio or microphone with minimal latency.
+- **Plasma 6 Native Widget**: A streamlined, high-performance widget for your desktop or panel.
 
 ---
 
@@ -122,5 +108,7 @@ This project wouldn't be possible without these amazing open-source libraries:
 This project is licensed under the **MIT License** - see the [LICENSE](LICENSE) file for details.
 
 ---
-
 Check out the [RELEASE_NOTES.md](RELEASE_NOTES.md) for the latest updates!
+
+---
+Made with ❤️ and a lot of coffee. Enjoy the music!

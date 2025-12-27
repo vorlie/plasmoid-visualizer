@@ -16,7 +16,7 @@ AnalysisEngine::~AnalysisEngine() {
     free(m_cfg);
 }
 
-void AnalysisEngine::process(const std::vector<float>& buffer) {
+void AnalysisEngine::computeFFT(const std::vector<float>& buffer) {
     if (buffer.empty()) return;
 
     // Fill input buffer with Hanning window
@@ -38,15 +38,19 @@ void AnalysisEngine::process(const std::vector<float>& buffer) {
     for (size_t i = 0; i < m_fftSize / 2; ++i) {
         m_magnitudes[i] = sqrtf(m_out[i].r * m_out[i].r + m_out[i].i * m_out[i].i);
     }
+}
 
-    // Logarithmic binning
-    float minFreq = 20.0f;
-    float maxFreq = 20000.0f;
+std::vector<float> AnalysisEngine::computeLayerMagnitudes(const LayerConfig& config, std::vector<float>& prevMagnitudes) {
+    std::vector<float> layerMagnitudes(config.numBars);
+    if (prevMagnitudes.size() != config.numBars) {
+        prevMagnitudes.assign(config.numBars, 0.0f);
+    }
+
     float sampleRate = 48000.0f;
 
-    for (size_t i = 0; i < m_numBars; ++i) {
+    for (size_t i = 0; i < config.numBars; ++i) {
         // Calculate frequency for this bar (logarithmic)
-        float f = minFreq * powf(maxFreq / minFreq, (float)i / m_numBars);
+        float f = config.minFreq * powf(config.maxFreq / config.minFreq, (float)i / config.numBars);
         float binIdx = f * m_fftSize / sampleRate;
         
         int b0 = (int)binIdx;
@@ -56,37 +60,48 @@ void AnalysisEngine::process(const std::vector<float>& buffer) {
         b0 = std::clamp(b0, 0, (int)(m_fftSize / 2 - 1));
         b1 = std::clamp(b1, 0, (int)(m_fftSize / 2 - 1));
         
-        float mag = (m_magnitudes[b0] * (1.0f - fract) + m_magnitudes[b1] * fract) * m_gain;
+        float mag = (m_magnitudes[b0] * (1.0f - fract) + m_magnitudes[b1] * fract) * config.gain;
         
         // Apply temporal smoothing (attack/decay)
-        if (mag > m_barPrevMagnitudes[i]) {
-            mag = m_barPrevMagnitudes[i] * 0.2f + mag * 0.8f;
+        if (mag > prevMagnitudes[i]) {
+            mag = prevMagnitudes[i] * 0.2f + mag * 0.8f;
         } else {
-            mag = m_barPrevMagnitudes[i] * m_falloff;
+            mag = prevMagnitudes[i] * config.falloff;
         }
 
-        m_barMagnitudes[i] = mag;
-        m_barPrevMagnitudes[i] = mag;
+        layerMagnitudes[i] = mag;
+        prevMagnitudes[i] = mag;
     }
 
     // Spatial smoothing (3-point moving average)
-    std::vector<float> smoothed(m_numBars);
-    for (size_t i = 0; i < m_numBars; ++i) {
-        float sum = m_barMagnitudes[i] * 2.0f;
+    std::vector<float> smoothed(config.numBars);
+    for (size_t i = 0; i < config.numBars; ++i) {
+        float sum = layerMagnitudes[i] * 2.0f;
         float weight = 2.0f;
         
         if (i > 0) {
-            sum += m_barMagnitudes[i-1];
+            sum += layerMagnitudes[i-1];
             weight += 1.0f;
         }
-        if (i < m_numBars - 1) {
-            sum += m_barMagnitudes[i+1];
+        if (i < config.numBars - 1) {
+            sum += layerMagnitudes[i+1];
             weight += 1.0f;
         }
         
         smoothed[i] = sum / weight;
     }
-    m_barMagnitudes = smoothed;
+    return smoothed;
+}
+
+void AnalysisEngine::process(const std::vector<float>& buffer) {
+    computeFFT(buffer);
+    
+    LayerConfig defaultConfig;
+    defaultConfig.gain = m_gain;
+    defaultConfig.falloff = m_falloff;
+    defaultConfig.numBars = m_numBars;
+    
+    m_barMagnitudes = computeLayerMagnitudes(defaultConfig, m_barPrevMagnitudes);
 }
 
 float AnalysisEngine::getEnergyInRange(float minFreq, float maxFreq, float sampleRate) const {

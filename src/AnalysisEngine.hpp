@@ -10,14 +10,26 @@ struct FrequencyBand {
     float energy;
 };
 
+struct LayerConfig {
+    float gain = 1.0f;
+    float falloff = 0.9f;
+    float minFreq = 20.0f;
+    float maxFreq = 20000.0f;
+    size_t numBars = 256;
+};
+
 class AnalysisEngine {
 public:
     AnalysisEngine(size_t fftSize);
     ~AnalysisEngine();
 
-    void process(const std::vector<float>& buffer);
+    void computeFFT(const std::vector<float>& buffer);
+    std::vector<float> computeLayerMagnitudes(const LayerConfig& config, std::vector<float>& prevMagnitudes);
     
+    // Backward compatibility for Plasma widget
+    void process(const std::vector<float>& buffer);
     const std::vector<float>& getMagnitudes() const { return m_barMagnitudes; }
+    
     float getEnergyInRange(float minFreq, float maxFreq, float sampleRate) const;
 
     // Falloff and Gain

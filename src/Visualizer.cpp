@@ -12,8 +12,9 @@ void main() {
 const char* fragmentShaderSource = R"(
 #version 330 core
 out vec4 FragColor;
+uniform vec4 uColor;
 void main() {
-    FragColor = vec4(0.0, 0.8, 1.0, 1.0);
+    FragColor = uColor;
 }
 )";
 
@@ -76,4 +77,9 @@ void Visualizer::render(const std::vector<float>& magnitudes) {
 
     glUseProgram(m_shaderProgram);
     glDrawArrays(GL_TRIANGLES, 0, vertices.size() / 2);
+}
+void Visualizer::setColor(float r, float g, float b, float a) {
+    glUseProgram(m_shaderProgram);
+    GLint colorLoc = glGetUniformLocation(m_shaderProgram, "uColor");
+    glUniform4f(colorLoc, r, g, b, a);
 }
