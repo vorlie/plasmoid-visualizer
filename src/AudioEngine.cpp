@@ -60,9 +60,17 @@ void AudioEngine::dataCallback(ma_device* pDevice, void* pOutput, const void* pI
                 }
             }
             
-            // Write to circular buffer
+            // Write to circular buffer (Mono)
             pEngine->m_circularBuffer[pEngine->m_writePos] = sample;
             pEngine->m_writePos = (pEngine->m_writePos + 1) % pEngine->m_circularBuffer.size();
+
+            // Write to stereo buffer (Duplicate mono for now for test tone, or we could add phase offset for fun?)
+            // Let's just do mono-ish for test tone, so it will be a diagonal line in XY
+            if (pEngine->m_stereoBuffer.size() < 16384) pEngine->m_stereoBuffer.resize(16384, 0.0f);
+            
+            pEngine->m_stereoBuffer[pEngine->m_stereoWritePos] = sample;
+            pEngine->m_stereoBuffer[(pEngine->m_stereoWritePos + 1) % pEngine->m_stereoBuffer.size()] = sample;
+            pEngine->m_stereoWritePos = (pEngine->m_stereoWritePos + 2) % pEngine->m_stereoBuffer.size();
 
             // Advance phase
             pEngine->m_testTonePhase += 2.0f * M_PI * pEngine->m_testToneFrequency / 44100.0f; // Assuming 44.1k
@@ -80,14 +88,29 @@ void AudioEngine::dataCallback(ma_device* pDevice, void* pOutput, const void* pI
             std::lock_guard<std::mutex> lock(pEngine->m_bufferMutex);
             if (pEngine->m_circularBuffer.size() < 8192) pEngine->m_circularBuffer.resize(8192, 0.0f);
             
+            if (pEngine->m_stereoBuffer.size() < 16384) pEngine->m_stereoBuffer.resize(16384, 0.0f);
+
             for (ma_uint32 i = 0; i < frameCount; ++i) {
                 float monoSample = 0;
-                for (size_t c = 0; c < channels; ++c) {
-                    monoSample += pInputF32[i * channels + c];
+                float left = 0;
+                float right = 0;
+
+                if (channels >= 2) {
+                    left = pInputF32[i * channels + 0];
+                    right = pInputF32[i * channels + 1];
+                    monoSample = (left + right) * 0.5f;
+                } else if (channels == 1) {
+                    left = right = monoSample = pInputF32[i * channels + 0];
                 }
-                monoSample /= channels;
+
+                // Mono for FFT
                 pEngine->m_circularBuffer[pEngine->m_writePos] = monoSample;
                 pEngine->m_writePos = (pEngine->m_writePos + 1) % pEngine->m_circularBuffer.size();
+                
+                // Stereo for XY
+                pEngine->m_stereoBuffer[pEngine->m_stereoWritePos] = left;
+                pEngine->m_stereoBuffer[(pEngine->m_stereoWritePos + 1) % pEngine->m_stereoBuffer.size()] = right;
+                pEngine->m_stereoWritePos = (pEngine->m_stereoWritePos + 2) % pEngine->m_stereoBuffer.size();
             }
             return; // Skip the rest of the callback for capture
         }
@@ -118,23 +141,81 @@ void AudioEngine::dataCallback(ma_device* pDevice, void* pOutput, const void* pI
         float* pOutputF32 = (float*)pOutput;
         size_t channels = pEngine->m_isDecoderInitialized ? pEngine->m_decoder.outputChannels : 2;
         
-        // Ensure circular buffer is large enough (e.g., 8192 samples)
+        // Ensure circular buffers are large enough
+        // Mono buffer: 8192 samples
         if (pEngine->m_circularBuffer.size() < 8192) {
             pEngine->m_circularBuffer.resize(8192, 0.0f);
         }
+        // Stereo buffer: 8192 frames * 2 channels = 16384 samples
+        if (pEngine->m_stereoBuffer.size() < 16384) {
+            pEngine->m_stereoBuffer.resize(16384, 0.0f);
+        }
 
         for (ma_uint32 i = 0; i < framesRead; ++i) {
-            float sum = 0;
-            for (size_t c = 0; c < channels; ++c) {
-                sum += pOutputF32[i * channels + c];
+            float left = 0.0f;
+            float right = 0.0f;
+            
+            if (channels >= 2) {
+                left = pOutputF32[i * channels + 0];
+                right = pOutputF32[i * channels + 1];
+            } else if (channels == 1) {
+                left = right = pOutputF32[i * channels + 0];
             }
-            pEngine->m_circularBuffer[pEngine->m_writePos] = sum / channels;
+
+            // Mono Mix for FFT
+            pEngine->m_circularBuffer[pEngine->m_writePos] = (left + right) * 0.5f;
             pEngine->m_writePos = (pEngine->m_writePos + 1) % pEngine->m_circularBuffer.size();
+
+            // Stereo Interleaved for XY
+            pEngine->m_stereoBuffer[pEngine->m_stereoWritePos] = left;
+            pEngine->m_stereoBuffer[(pEngine->m_stereoWritePos + 1) % pEngine->m_stereoBuffer.size()] = right;
+            pEngine->m_stereoWritePos = (pEngine->m_stereoWritePos + 2) % pEngine->m_stereoBuffer.size();
         }
     }
 
     if (framesRead < frameCount) {
         ma_decoder_seek_to_pcm_frame(&pEngine->m_decoder, 0);
+    }
+}
+
+bool AudioEngine::readAudioFrames(size_t offsetFrames, size_t count, std::vector<float>& outBuffer) {
+    if (!m_isDecoderInitialized) return false;
+    
+    // We need to protect the decoder since it's shared with the audio thread (though usually we pause before this)
+    std::lock_guard<std::mutex> lock(m_bufferMutex); 
+
+    ma_result result = ma_decoder_seek_to_pcm_frame(&m_decoder, (ma_uint64)offsetFrames);
+    if (result != MA_SUCCESS) return false;
+
+    size_t channels = m_decoder.outputChannels;
+    outBuffer.resize(count * channels);
+
+    ma_uint64 framesRead = 0;
+    result = ma_decoder_read_pcm_frames(&m_decoder, outBuffer.data(), (ma_uint64)count, &framesRead);
+    
+    if (framesRead < count) {
+        // Zero pad if we hit EOF
+        std::fill(outBuffer.begin() + framesRead * channels, outBuffer.end(), 0.0f);
+    }
+
+    return (result == MA_SUCCESS);
+}
+
+void AudioEngine::getStereoBuffer(std::vector<float>& buffer, size_t frames) {
+    std::lock_guard<std::mutex> lock(m_bufferMutex);
+    if (m_stereoBuffer.empty()) return;
+    
+    size_t samples = frames * 2;
+    buffer.resize(samples);
+    
+    // We want the most recent 'frames'
+    // m_stereoWritePos points to the next write slot (interleaved index)
+    
+    size_t bufferSize = m_stereoBuffer.size();
+    size_t readPos = (m_stereoWritePos + bufferSize - samples) % bufferSize;
+    
+    for (size_t i = 0; i < samples; ++i) {
+        buffer[i] = m_stereoBuffer[(readPos + i) % bufferSize];
     }
 }
 
@@ -303,10 +384,15 @@ float AudioEngine::getPosition() const {
 }
 
 float AudioEngine::getDuration() const {
-    if (!m_isDecoderInitialized) return 0;
+    if (!m_isDecoderInitialized) return 0.0f;
     ma_uint64 length;
     ma_decoder_get_length_in_pcm_frames((ma_decoder*)&m_decoder, &length);
     return (float)length / m_decoder.outputSampleRate;
+}
+
+ma_uint32 AudioEngine::getSampleRate() const {
+    if (m_isDecoderInitialized) return m_decoder.outputSampleRate;
+    return 44100; // Default fallback
 }
 
 size_t AudioEngine::getChannels() const {

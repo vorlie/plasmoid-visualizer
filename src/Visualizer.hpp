@@ -9,7 +9,8 @@ enum class VisualizerShape {
     Bars,
     Lines,
     Dots,
-    Waveform
+    Waveform,
+    OscilloscopeXY
 };
 
 class Visualizer {
@@ -18,11 +19,12 @@ public:
     ~Visualizer();
 
     void render(const std::vector<float>& magnitudes);
-    void setHeightScale(float scale) { m_heightScale = scale; }
+    void setHeightScale(float scale);
     void setColor(float r, float g, float b, float a);
-    void setMirrored(bool mirrored) { m_mirrored = mirrored; }
-    void setShape(VisualizerShape shape) { m_shape = shape; }
-    void setCornerRadius(float radius) { m_cornerRadius = radius; }
+    void setMirrored(bool mirrored);
+    void setShape(VisualizerShape shape);
+    void setCornerRadius(float radius);
+    void setViewportSize(int width, int height); // For aspect ratio correction
 
 private:
     GLuint m_shaderProgram;
@@ -31,6 +33,9 @@ private:
     bool m_mirrored = false;
     VisualizerShape m_shape = VisualizerShape::Bars;
     float m_cornerRadius = 0.0f;
+    int m_viewportWidth = 1920;
+    int m_viewportHeight = 1080;
+    float m_r = 1.0f, m_g = 1.0f, m_b = 1.0f, m_a = 1.0f; // Stored for glow effect
 
     void initShaders();
 };

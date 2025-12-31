@@ -72,10 +72,32 @@ void Visualizer::initShaders() {
     glDeleteShader(fragmentShader);
 }
 
+void Visualizer::setHeightScale(float scale) {
+    m_heightScale = scale;
+}
+
+void Visualizer::setMirrored(bool mirrored) {
+    m_mirrored = mirrored;
+}
+
+void Visualizer::setShape(VisualizerShape shape) {
+    m_shape = shape;
+}
+
 void Visualizer::setColor(float r, float g, float b, float a) {
+    m_r = r; m_g = g; m_b = b; m_a = a; // Store for glow effect
     glUseProgram(m_shaderProgram);
     GLint colorLoc = glGetUniformLocation(m_shaderProgram, "uColor");
     glUniform4f(colorLoc, r, g, b, a);
+}
+
+void Visualizer::setCornerRadius(float radius) {
+    m_cornerRadius = radius;
+}
+
+void Visualizer::setViewportSize(int width, int height) {
+    m_viewportWidth = width;
+    m_viewportHeight = height;
 }
 
 void Visualizer::render(const std::vector<float>& magnitudes) {
@@ -116,19 +138,49 @@ void Visualizer::render(const std::vector<float>& magnitudes) {
     };
 
     if (m_shape == VisualizerShape::Waveform) {
-        // Waveform: Draw a continuous line strip centered on Y=0
-        // Input 'magnitudes' is expected to be raw audio samples [-1, 1]
-        // We might want to downsample if there are too many points
-        size_t step = std::max((size_t)1, numBars / 2048); // Limit to ~2000 points
-        
+        // ... (existing waveform logic) ...
+        size_t step = std::max((size_t)1, numBars / 2048);
         for (size_t i = 0; i < numBars; i += step) {
-            float x = -1.0f + 2.0f * (float)i / (float)numBars;
-            float y = magnitudes[i] * m_heightScale;
-            // Clamp to screen
-            if (y > 1.0f) y = 1.0f;
-            if (y < -1.0f) y = -1.0f;
+             // ...
+             float x = -1.0f + 2.0f * (float)i / (float)numBars;
+             float y = magnitudes[i] * m_heightScale;
+             // ...
+             vertices.push_back(x); vertices.push_back(y); vertices.push_back(0.0f); vertices.push_back(0.0f);
+        }
+    } else if (m_shape == VisualizerShape::OscilloscopeXY) {
+        // XY Mode with square aspect ratio and CRT glow
+        size_t numSamples = magnitudes.size() / 2;
+        size_t step = std::max((size_t)1, numSamples / 2048);
+
+        // Calculate aspect ratio correction for square display
+        float aspectRatio = (float)m_viewportWidth / (float)m_viewportHeight;
+        float xScale = 1.0f;
+        float yScale = 1.0f;
+        
+        if (aspectRatio > 1.0f) {
+            // Width > Height: compress X
+            xScale = 1.0f / aspectRatio;
+        } else {
+            // Height > Width: compress Y
+            yScale = aspectRatio;
+        }
+
+        for (size_t i = 0; i < numSamples; i += step) {
+            float l = magnitudes[i * 2];
+            float r = magnitudes[i * 2 + 1];
             
-            // Vertex
+            // Apply gain
+            float x = l * m_heightScale;
+            float y = r * m_heightScale;
+
+            // Apply aspect correction for square
+            x *= xScale;
+            y *= yScale;
+
+            // Clamp
+            x = std::clamp(x, -1.0f, 1.0f);
+            y = std::clamp(y, -1.0f, 1.0f);
+
             vertices.push_back(x); vertices.push_back(y); vertices.push_back(0.0f); vertices.push_back(0.0f);
         }
     } else if (m_mirrored) {
@@ -168,6 +220,25 @@ void Visualizer::render(const std::vector<float>& magnitudes) {
     } else if (m_shape == VisualizerShape::Waveform) {
         glLineWidth(2.0f);
         glDrawArrays(GL_LINE_STRIP, 0, (GLsizei)(vertices.size() / 4));
+    } else if (m_shape == VisualizerShape::OscilloscopeXY) {
+        // CRT Glow Effect: Multi-pass with decreasing thickness and alpha
+        GLsizei vertexCount = (GLsizei)(vertices.size() / 4);
+        GLint colorLoc = glGetUniformLocation(m_shaderProgram, "uColor");
+        
+        // Pass 1: Wide glow halo (outer)
+        glLineWidth(6.0f);
+        glUniform4f(colorLoc, m_r, m_g, m_b, m_a * 0.15f);
+        glDrawArrays(GL_LINE_STRIP, 0, vertexCount);
+        
+        // Pass 2: Medium glow
+        glLineWidth(4.0f);
+        glUniform4f(colorLoc, m_r, m_g, m_b, m_a * 0.35f);
+        glDrawArrays(GL_LINE_STRIP, 0, vertexCount);
+        
+        // Pass 3: Core line (bright)
+        glLineWidth(2.0f);
+        glUniform4f(colorLoc, m_r, m_g, m_b, m_a);
+        glDrawArrays(GL_LINE_STRIP, 0, vertexCount);
     } else {
         glDrawArrays(GL_TRIANGLES, 0, (GLsizei)(vertices.size() / 4));
     }

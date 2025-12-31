@@ -22,10 +22,17 @@ public:
     bool isCaptureMode() const { return m_isCaptureMode; }
     float getPosition() const;
     float getDuration() const;
+    ma_uint32 getSampleRate() const;
     size_t getChannels() const;
 
-    // Get current audio buffer for analysis
+    // Get current audio buffer for analysis (Mono)
     void getBuffer(std::vector<float>& buffer, size_t size);
+    
+    // Get current stereo buffer for Oscilloscope XY (Interleaved L/R)
+    void getStereoBuffer(std::vector<float>& buffer, size_t frames);
+    
+    // Offline rendering helper
+    bool readAudioFrames(size_t offsetFrames, size_t count, std::vector<float>& outBuffer);
 
     // Device management
     struct DeviceInfo {
@@ -56,8 +63,10 @@ private:
     bool m_isPlaying = false;
 
     mutable std::mutex m_bufferMutex;
-    std::vector<float> m_circularBuffer;
+    std::vector<float> m_circularBuffer; // Mono mix for FFT
+    std::vector<float> m_stereoBuffer;   // Interleaved L/R for XY
     size_t m_writePos = 0;
+    size_t m_stereoWritePos = 0;
 
     ma_device_id m_selectedDeviceID;
     bool m_useSpecificDevice = false;

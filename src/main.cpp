@@ -25,12 +25,13 @@ struct VisualizerLayer {
     float cornerRadius = 0.0f;
     std::vector<float> prevMagnitudes;
     bool visible = true;
+    float timeScale = 1.0f; // For Waveform/Oscilloscope
 };
 
 int main() {
     if (!glfwInit()) return -1;
 
-    GLFWwindow* window = glfwCreateWindow(1280, 720, "Plasmoid Visualizer Standalone", NULL, NULL);
+    GLFWwindow* window = glfwCreateWindow(800, 800, "Plasmoid Visualizer Standalone", NULL, NULL);
     if (!window) {
         glfwTerminate();
         return -1;
@@ -82,6 +83,93 @@ int main() {
     float particleSize = 5.0f;
     float particleColor[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
 
+    // Helper to update logic (Beat detection, particles)
+    auto updateVisualizer = [&](float dt, const std::vector<float>& buffer) {
+        analysisEngine.computeFFT(buffer);
+        
+        bool isBeat = false;
+        if (particlesEnabled) {
+            analysisEngine.setBeatSensitivity(beatSensitivity);
+            isBeat = analysisEngine.detectBeat(dt);
+            
+            particleSystem.setParticleCount(particleCount);
+            particleSystem.setSpeed(particleSpeed);
+            particleSystem.setSize(particleSize);
+            particleSystem.setColor(particleColor[0], particleColor[1], particleColor[2], particleColor[3]);
+            particleSystem.update(dt, isBeat);
+        }
+    };
+
+    // Helper to render scene (Background, Layers, Particles) - No UI
+    auto renderFrame = [&](int width, int height, const std::vector<float>& monoBuffer, const std::vector<float>& stereoBuffer) {
+        glViewport(0, 0, width, height);
+        glClearColor(0.05f, 0.05f, 0.05f, 1.0f);
+        glClear(GL_COLOR_BUFFER_BIT);
+
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        
+        // Update visualizer viewport for aspect correction
+        visualizer.setViewportSize(width, height);
+
+        for (auto& layer : layers) {
+            if (!layer.visible) continue;
+            
+            std::vector<float> renderData;
+            if (layer.shape == VisualizerShape::Waveform) {
+                if (!monoBuffer.empty()) {
+                    // Apply Triggering (Mono)
+                    size_t triggerOffset = 0;
+                    for (size_t i = 0; i < 512 && i + 1 < monoBuffer.size(); ++i) {
+                        if (monoBuffer[i] < 0.0f && monoBuffer[i+1] >= 0.0f) {
+                            triggerOffset = i;
+                            break;
+                        }
+                    }
+                    size_t copyLen = std::min((size_t)2048, monoBuffer.size() - triggerOffset);
+                    renderData.assign(monoBuffer.begin() + triggerOffset, monoBuffer.begin() + triggerOffset + copyLen);
+                } else {
+                    renderData.assign(128, 0.0f);
+                }
+            } else if (layer.shape == VisualizerShape::OscilloscopeXY) {
+                size_t baseFrames = 2048;
+                size_t requestFrames = (size_t)(baseFrames * layer.timeScale);
+                
+                // For XY we use stereoBuffer
+                if (!stereoBuffer.empty()) {
+                    size_t triggerOffset = 0;
+                     // Stride is 2 for stereo
+                    for (size_t i = 0; i < 512 && (i + 1) * 2 < stereoBuffer.size(); ++i) {
+                        float current = stereoBuffer[i * 2];
+                        float next = stereoBuffer[(i + 1) * 2];
+                        if (current < 0.0f && next >= 0.0f) {
+                            triggerOffset = i * 2;
+                            break;
+                        }
+                    }
+                    size_t available = stereoBuffer.size() - triggerOffset;
+                    size_t copySize = std::min(available, requestFrames * 2);
+                    renderData.assign(stereoBuffer.begin() + triggerOffset, stereoBuffer.begin() + triggerOffset + copySize);
+                } else {
+                    renderData.assign(256, 0.0f);
+                }
+            } else {
+                renderData = analysisEngine.computeLayerMagnitudes(layer.config, layer.prevMagnitudes);
+            }
+
+            visualizer.setColor(layer.color[0], layer.color[1], layer.color[2], layer.color[3]);
+            visualizer.setHeightScale(layer.barHeight);
+            visualizer.setMirrored(layer.mirrored);
+            visualizer.setShape(layer.shape);
+            visualizer.setCornerRadius(layer.cornerRadius);
+            visualizer.render(renderData);
+        }
+
+        if (particlesEnabled) {
+            particleSystem.render();
+        }
+    };
+
     while (!glfwWindowShouldClose(window)) {
         glfwPollEvents();
         float deltaTime = 1.0f / ImGui::GetIO().Framerate;
@@ -119,13 +207,52 @@ int main() {
                 std::vector<float> renderData;
                 if (layer.shape == VisualizerShape::Waveform) {
                     if (!audioBuffer.empty()) {
-                        renderData = audioBuffer;
+                        // Apply Triggering (Mono)
+                        size_t triggerOffset = 0;
+                        for (size_t i = 0; i < 512 && i + 1 < audioBuffer.size(); ++i) {
+                            if (audioBuffer[i] < 0.0f && audioBuffer[i+1] >= 0.0f) {
+                                triggerOffset = i;
+                                break;
+                            }
+                        }
+                        size_t copyLen = std::min((size_t)2048, audioBuffer.size() - triggerOffset);
+                        renderData.assign(audioBuffer.begin() + triggerOffset, audioBuffer.begin() + triggerOffset + copyLen);
                     } else {
                         renderData.assign(128, 0.0f);
                     }
+            } else if (layer.shape == VisualizerShape::OscilloscopeXY) {
+                // Pass interleaved stereo buffer
+                size_t baseFrames = 2048;
+                size_t requestFrames = (size_t)(baseFrames * layer.timeScale);
+                if (requestFrames < 256) requestFrames = 256;
+                if (requestFrames > 8192) requestFrames = 8192;
+
+                std::vector<float> stereoData;
+                audioEngine.getStereoBuffer(stereoData, requestFrames + 512); // Ask for extra to find trigger
+                
+                if (!stereoData.empty()) {
+                    // Simple Zero-Crossing Trigger on Left Channel (Even indices)
+                    size_t triggerOffset = 0;
+                    for (size_t i = 0; i < 512 && (i + 1) * 2 < stereoData.size(); ++i) {
+                        float current = stereoData[i * 2];
+                        float next = stereoData[(i + 1) * 2];
+                        // Trigger condition: rising edge crossing zero
+                        if (current < 0.0f && next >= 0.0f) {
+                            triggerOffset = i * 2;
+                            break;
+                        }
+                    }
+                    
+                    // Copy triggered portion
+                    size_t available = stereoData.size() - triggerOffset;
+                    size_t copySize = std::min(available, requestFrames * 2);
+                    renderData.assign(stereoData.begin() + triggerOffset, stereoData.begin() + triggerOffset + copySize);
                 } else {
-                    renderData = analysisEngine.computeLayerMagnitudes(layer.config, layer.prevMagnitudes);
+                    renderData.assign(256, 0.0f);
                 }
+            } else {
+                renderData = analysisEngine.computeLayerMagnitudes(layer.config, layer.prevMagnitudes);
+            }
                 // std::cout << "DEBUG: Rendering Layer " << layer.name << std::endl;
                 visualizer.setColor(layer.color[0], layer.color[1], layer.color[2], layer.color[3]);
                 visualizer.setHeightScale(layer.barHeight);
@@ -262,6 +389,116 @@ int main() {
                     if (ImGui::Button("Play")) audioEngine.play();
                     ImGui::SameLine();
                     if (ImGui::Button("Stop")) audioEngine.stop();
+
+                    ImGui::Separator();
+                    static bool showRenderDialog = false;
+                    if (ImGui::Button("Render to Video")) {
+                        showRenderDialog = true;
+                    }
+
+                    if (showRenderDialog) {
+                        ImGui::Begin("Render Video", &showRenderDialog);
+                        static int vidWidth = 1920;
+                        static int vidHeight = 1080;
+                        static int vidFps = 60;
+                        static char outPath[256] = "output.mp4";
+                        static float renderProgress = 0.0f;
+                        static bool isRendering = false;
+
+                        ImGui::InputInt("Width", &vidWidth);
+                        ImGui::InputInt("Height", &vidHeight);
+                        ImGui::InputInt("FPS", &vidFps);
+                        ImGui::InputText("Output File", outPath, sizeof(outPath));
+
+                        if (!isRendering && ImGui::Button("Start Render")) {
+                            isRendering = true;
+                            // RENDER LOGIC
+                            // 1. Pause Playback
+                            audioEngine.pause();
+                            
+                            // 2. Open FFMPEG Pipe
+                            // Note: Added -vf vflip because OpenGL reads bottom-to-top
+                            std::string cmd = "ffmpeg -y -f rawvideo -vcodec rawvideo -s " + 
+                                              std::to_string(vidWidth) + "x" + std::to_string(vidHeight) + 
+                                              " -pix_fmt rgb24 -r " + std::to_string(vidFps) + 
+                                              " -i - -i \"" + std::string(filePath) + 
+                                              "\" -vf vflip -c:v libx264 -preset fast -pix_fmt yuv420p -c:a copy -shortest \"" + std::string(outPath) + "\"";
+                            
+                            FILE* pipe = popen(cmd.c_str(), "w");
+                            if (pipe) {
+                                float duration = audioEngine.getDuration();
+                                ma_uint32 sampleRate = audioEngine.getSampleRate();
+                                int totalFrames = (int)(duration * vidFps);
+                                double dt = 1.0 / (double)vidFps;
+                                // We'll just ask audioEngine for chunks.
+                                
+                                std::vector<float> frameAudio; // Stereo interleaved from file
+                                std::vector<float> monoAudio; // Downmixed
+                                std::vector<uint8_t> pixels(vidWidth * vidHeight * 3);
+
+                                for (int f = 0; f < totalFrames; f++) {
+                                    renderProgress = (float)f / totalFrames;
+                                    
+                                    if (f % 60 == 0) std::cout << "Rendering: " << (int)(renderProgress * 100) << "%" << std::endl;
+
+                                    // 1. Read Audio
+                                    size_t offset = (size_t)((double)f * dt * (double)sampleRate); 
+                                    // Let's grab 8192 samples around the point
+                                    audioEngine.readAudioFrames(offset, 8192, frameAudio); 
+                                    
+                                    // Downmix to Mono for FFT
+                                    monoAudio.resize(frameAudio.size() / 2); // Assume stereo
+                                    for(size_t i=0; i<monoAudio.size(); ++i) {
+                                        monoAudio[i] = (frameAudio[i*2] + frameAudio[i*2+1]) * 0.5f;
+                                    }
+
+                                    // 2. Update Physics
+                                    updateVisualizer(dt, monoAudio);
+
+                                    // 3. Render
+                                    static GLuint fbo = 0, tex = 0, rbo = 0;
+                                    if (fbo == 0) {
+                                        glGenFramebuffers(1, &fbo);
+                                        glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+                                        glGenTextures(1, &tex);
+                                        glBindTexture(GL_TEXTURE_2D, tex);
+                                        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, vidWidth, vidHeight, 0, GL_RGB, GL_UNSIGNED_BYTE, NULL);
+                                        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, tex, 0);
+                                        glGenRenderbuffers(1, &rbo);
+                                        glBindRenderbuffer(GL_RENDERBUFFER, rbo);
+                                        glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, vidWidth, vidHeight);
+                                        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, rbo);
+                                        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+                                    }
+                                    
+                                    glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+                                    renderFrame(vidWidth, vidHeight, monoAudio, frameAudio);
+                                    
+                                    // 4. Read Pixels
+                                    glReadPixels(0, 0, vidWidth, vidHeight, GL_RGB, GL_UNSIGNED_BYTE, pixels.data());
+                                    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+                                    
+                                    // Write to Pipe
+                                    fwrite(pixels.data(), 1, pixels.size(), pipe);
+                                }
+                                pclose(pipe);
+                                std::cout << "Rendering Complete!" << std::endl;
+                            } else {
+                                std::cerr << "Failed to open FFMPEG pipe" << std::endl;
+                            }
+                            isRendering = false;
+                            showRenderDialog = false;
+                        }
+                        
+                        if (isRendering) {
+                             ImGui::ProgressBar(renderProgress, ImVec2(0.0f, 0.0f));
+                             ImGui::SameLine();
+                             ImGui::Text("Rendering...");
+                        }
+
+                        ImGui::End();
+                    }
+
                 } else if (currentAudioMode == ModeTest) {
                     static float testFreq = 440.0f;
                     static float testVol = 0.5f;
@@ -347,7 +584,7 @@ int main() {
             ImGui::Text("Visuals");
             ImGui::Checkbox("Mirror Mode", &layer.mirrored);
             
-            const char* shapes[] = { "Bars", "Lines", "Dots", "Waveform" };
+            const char* shapes[] = { "Bars", "Lines", "Dots", "Waveform", "Oscilloscope XY" };
             int currentShape = (int)layer.shape;
             if (ImGui::Combo("Shape", &currentShape, shapes, IM_ARRAYSIZE(shapes))) {
                 layer.shape = (VisualizerShape)currentShape;
@@ -355,6 +592,10 @@ int main() {
             
             if (layer.shape == VisualizerShape::Bars) {
                 ImGui::SliderFloat("Corner Radius", &layer.cornerRadius, 0.0f, 1.0f);
+            }
+            
+            if (layer.shape == VisualizerShape::Waveform || layer.shape == VisualizerShape::OscilloscopeXY) {
+                 ImGui::SliderFloat("Time Scale", &layer.timeScale, 0.2f, 2.0f);
             }
 
             ImGui::End();
