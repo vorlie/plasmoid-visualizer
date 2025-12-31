@@ -26,6 +26,9 @@ struct VisualizerLayer {
     std::vector<float> prevMagnitudes;
     bool visible = true;
     float timeScale = 1.0f; // For Waveform/Oscilloscope
+    float rotation = 0.0f; // For Oscilloscope XY rotation (degrees for UI)
+    bool flipX = false; // Horizontal flip for XY
+    bool flipY = false; // Vertical flip for XY
 };
 
 int main() {
@@ -76,7 +79,7 @@ int main() {
     bool showParticleSettings = true;
 
     // Particle Settings
-    bool particlesEnabled = true;
+    bool particlesEnabled = false;
     float beatSensitivity = 1.3f;
     int particleCount = 500;
     float particleSpeed = 1.0f;
@@ -142,7 +145,7 @@ int main() {
                     for (size_t i = 0; i < 512 && (i + 1) * 2 < stereoBuffer.size(); ++i) {
                         float current = stereoBuffer[i * 2];
                         float next = stereoBuffer[(i + 1) * 2];
-                        if (current < 0.0f && next >= 0.0f) {
+                        if (current < 0.0f && next >= 0.05f) {
                             triggerOffset = i * 2;
                             break;
                         }
@@ -162,6 +165,8 @@ int main() {
             visualizer.setMirrored(layer.mirrored);
             visualizer.setShape(layer.shape);
             visualizer.setCornerRadius(layer.cornerRadius);
+            visualizer.setRotation(layer.rotation * 3.14159f / 180.0f); // Convert degrees to radians
+            visualizer.setFlip(layer.flipX, layer.flipY);
             visualizer.render(renderData);
         }
 
@@ -170,34 +175,47 @@ int main() {
         }
     };
 
+    float smoothTriggerOffset = 0.0f;
+    float triggerLevel = 0.05f;
+    float phosphorDecay = 0.1f;
+
     while (!glfwWindowShouldClose(window)) {
         glfwPollEvents();
         float deltaTime = 1.0f / ImGui::GetIO().Framerate;
 
-        // Audio processing
         std::vector<float> audioBuffer;
-        
         bool isBeat = false;
         
         try {
             audioEngine.getBuffer(audioBuffer, 8192);
-            
             analysisEngine.computeFFT(audioBuffer);
+            
             if (particlesEnabled) {
                 analysisEngine.setBeatSensitivity(beatSensitivity);
                 isBeat = analysisEngine.detectBeat(deltaTime);
-                
                 particleSystem.update(deltaTime, isBeat);
             }
 
-            // Rendering
+            // 1. PRE-RENDER PHASE (Phosphor Decay)
             int display_w, display_h;
             glfwGetFramebufferSize(window, &display_w, &display_h);
             glViewport(0, 0, display_w, display_h);
-            glClearColor(0.05f, 0.05f, 0.05f, 1.0f);
-            glClear(GL_COLOR_BUFFER_BIT);
 
-            // Render layers
+            bool usePersistence = false;
+            for (auto& l : layers) {
+                if (l.visible && l.shape == VisualizerShape::OscilloscopeXY) {
+                    usePersistence = true; break;
+                }
+            }
+
+            if (usePersistence) {
+                visualizer.drawFullscreenDimmer(phosphorDecay); 
+            } else {
+                glClearColor(0.05f, 0.05f, 0.05f, 1.0f);
+                glClear(GL_COLOR_BUFFER_BIT);
+            }
+
+            // 2. LAYER RENDERING
             glEnable(GL_BLEND);
             glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
@@ -206,59 +224,54 @@ int main() {
                 
                 std::vector<float> renderData;
                 if (layer.shape == VisualizerShape::Waveform) {
-                    if (!audioBuffer.empty()) {
-                        // Apply Triggering (Mono)
-                        size_t triggerOffset = 0;
-                        for (size_t i = 0; i < 512 && i + 1 < audioBuffer.size(); ++i) {
-                            if (audioBuffer[i] < 0.0f && audioBuffer[i+1] >= 0.0f) {
-                                triggerOffset = i;
-                                break;
-                            }
-                        }
-                        size_t copyLen = std::min((size_t)2048, audioBuffer.size() - triggerOffset);
-                        renderData.assign(audioBuffer.begin() + triggerOffset, audioBuffer.begin() + triggerOffset + copyLen);
-                    } else {
-                        renderData.assign(128, 0.0f);
-                    }
-            } else if (layer.shape == VisualizerShape::OscilloscopeXY) {
-                // Pass interleaved stereo buffer
-                size_t baseFrames = 2048;
-                size_t requestFrames = (size_t)(baseFrames * layer.timeScale);
-                if (requestFrames < 256) requestFrames = 256;
-                if (requestFrames > 8192) requestFrames = 8192;
-
-                std::vector<float> stereoData;
-                audioEngine.getStereoBuffer(stereoData, requestFrames + 512); // Ask for extra to find trigger
-                
-                if (!stereoData.empty()) {
-                    // Simple Zero-Crossing Trigger on Left Channel (Even indices)
+                    // Waveform Logic (Standard)
                     size_t triggerOffset = 0;
-                    for (size_t i = 0; i < 512 && (i + 1) * 2 < stereoData.size(); ++i) {
-                        float current = stereoData[i * 2];
-                        float next = stereoData[(i + 1) * 2];
-                        // Trigger condition: rising edge crossing zero
-                        if (current < 0.0f && next >= 0.0f) {
-                            triggerOffset = i * 2;
-                            break;
+                    for (size_t i = 0; i < 512 && i + 1 < audioBuffer.size(); ++i) {
+                        if (audioBuffer[i] < 0.0f && audioBuffer[i+1] >= 0.0f) {
+                            triggerOffset = i; break;
                         }
                     }
+                    size_t copyLen = std::min((size_t)2048, audioBuffer.size() - triggerOffset);
+                    renderData.assign(audioBuffer.begin() + triggerOffset, audioBuffer.begin() + triggerOffset + copyLen);
+
+                } else if (layer.shape == VisualizerShape::OscilloscopeXY) {
+                    size_t baseFrames = 2048;
+                    size_t requestFrames = (size_t)(baseFrames * layer.timeScale);
+                    std::vector<float> stereoData;
+                    audioEngine.getStereoBuffer(stereoData, requestFrames + 512);
                     
-                    // Copy triggered portion
-                    size_t available = stereoData.size() - triggerOffset;
-                    size_t copySize = std::min(available, requestFrames * 2);
-                    renderData.assign(stereoData.begin() + triggerOffset, stereoData.begin() + triggerOffset + copySize);
+                    if (!stereoData.empty()) {
+                        size_t targetOffset = 0;
+                        
+                        if (triggerLevel > 0.0f) { // Only trigger if level > 0
+                            for (size_t i = 0; i < 512 && (i + 1) * 2 < stereoData.size(); ++i) {
+                                if (stereoData[i * 2] < 0.0f && stereoData[(i + 1) * 2] >= triggerLevel) {
+                                    targetOffset = i * 2;
+                                    break;
+                                }
+                            }
+                            smoothTriggerOffset += (targetOffset - smoothTriggerOffset) * 0.1f; 
+                        } else {
+                            smoothTriggerOffset = 0; 
+                        }
+
+                        size_t finalOffset = (size_t)smoothTriggerOffset;
+                        if (finalOffset % 2 != 0) finalOffset--;
+                        
+                        size_t available = stereoData.size() - finalOffset;
+                        size_t copySize = std::min(available, requestFrames * 2);
+                        renderData.assign(stereoData.begin() + finalOffset, stereoData.begin() + finalOffset + copySize);
+                    }
                 } else {
-                    renderData.assign(256, 0.0f);
+                    renderData = analysisEngine.computeLayerMagnitudes(layer.config, layer.prevMagnitudes);
                 }
-            } else {
-                renderData = analysisEngine.computeLayerMagnitudes(layer.config, layer.prevMagnitudes);
-            }
-                // std::cout << "DEBUG: Rendering Layer " << layer.name << std::endl;
+
+                visualizer.setViewportSize(display_w, display_h);
                 visualizer.setColor(layer.color[0], layer.color[1], layer.color[2], layer.color[3]);
                 visualizer.setHeightScale(layer.barHeight);
-                visualizer.setMirrored(layer.mirrored);
                 visualizer.setShape(layer.shape);
-                visualizer.setCornerRadius(layer.cornerRadius);
+                visualizer.setRotation(layer.rotation * 3.14159f / 180.0f); // Convert degrees to radians
+                visualizer.setFlip(layer.flipX, layer.flipY);
                 visualizer.render(renderData);
             }
         } catch (const std::exception& e) {
@@ -417,7 +430,7 @@ int main() {
                             audioEngine.pause();
                             
                             // 2. Open FFMPEG Pipe
-                            // Note: Added -vf vflip because OpenGL reads bottom-to-top
+                            // Added -vf vflip because OpenGL reads bottom-to-top
                             std::string cmd = "ffmpeg -y -f rawvideo -vcodec rawvideo -s " + 
                                               std::to_string(vidWidth) + "x" + std::to_string(vidHeight) + 
                                               " -pix_fmt rgb24 -r " + std::to_string(vidFps) + 
@@ -501,6 +514,8 @@ int main() {
 
                 } else if (currentAudioMode == ModeTest) {
                     static float testFreq = 440.0f;
+                    static float testFreqRight = 440.0f;
+                    static bool testStereo = false;
                     static float testVol = 0.5f;
                     static int testType = 0; // Sine default
                     
@@ -509,8 +524,21 @@ int main() {
                         audioEngine.setTestToneType((AudioEngine::TestToneType)testType);
                     }
 
-                    if (ImGui::SliderFloat("Frequency (Hz)", &testFreq, 20.0f, 2000.0f)) {
-                        audioEngine.setTestToneFrequency(testFreq);
+                    if (ImGui::Checkbox("Stereo Mode", &testStereo)) {
+                        audioEngine.setTestToneStereo(testStereo);
+                    }
+
+                    if (testStereo) {
+                        if (ImGui::SliderFloat("Frequency L (Hz)", &testFreq, 20.0f, 2000.0f)) {
+                            audioEngine.setTestToneFrequency(testFreq);
+                        }
+                        if (ImGui::SliderFloat("Frequency R (Hz)", &testFreqRight, 20.0f, 2000.0f)) {
+                            audioEngine.setTestToneFrequencyRight(testFreqRight);
+                        }
+                    } else {
+                        if (ImGui::SliderFloat("Frequency (Hz)", &testFreq, 20.0f, 2000.0f)) {
+                            audioEngine.setTestToneFrequency(testFreq);
+                        }
                     }
                     
                     if (ImGui::SliderFloat("Volume", &testVol, 0.0f, 1.0f)) {
@@ -596,6 +624,12 @@ int main() {
             
             if (layer.shape == VisualizerShape::Waveform || layer.shape == VisualizerShape::OscilloscopeXY) {
                  ImGui::SliderFloat("Time Scale", &layer.timeScale, 0.2f, 2.0f);
+            }
+            
+            if (layer.shape == VisualizerShape::OscilloscopeXY) {
+                ImGui::SliderFloat("Rotation", &layer.rotation, 0.0f, 360.0f);
+                ImGui::Checkbox("Flip Horizontal", &layer.flipX);
+                ImGui::Checkbox("Flip Vertical", &layer.flipY);
             }
 
             ImGui::End();

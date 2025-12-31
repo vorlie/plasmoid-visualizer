@@ -1,6 +1,7 @@
 #include "Visualizer.hpp"
 #include <iostream>
 #include <algorithm>
+#include <cmath>
 
 const char* vertexShaderSource = R"(
 #version 330 core
@@ -100,6 +101,34 @@ void Visualizer::setViewportSize(int width, int height) {
     m_viewportHeight = height;
 }
 
+void Visualizer::setRotation(float angleRadians) {
+    m_rotationAngle = angleRadians;
+}
+
+void Visualizer::setFlip(bool flipX, bool flipY) {
+    m_flipX = flipX;
+    m_flipY = flipY;
+}
+
+void Visualizer::drawFullscreenDimmer(float decayRate) {
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+    // Draw a simple black quad over the whole screen [-1, 1]
+    static float quadVertices[] = {
+        -1.0f, -1.0f,  1.0f, -1.0f,  -1.0f,  1.0f,
+        -1.0f,  1.0f,  1.0f, -1.0f,   1.0f,  1.0f
+    };
+
+    // Use a basic shader or just raw GL for this specific task
+    glColor4f(0.0f, 0.0f, 0.0f, decayRate); 
+    glBegin(GL_TRIANGLES);
+    for(int i=0; i<6; ++i) {
+        glVertex2f(quadVertices[i*2], quadVertices[i*2+1]);
+    }
+    glEnd();
+}
+
 void Visualizer::render(const std::vector<float>& magnitudes) {
     if (magnitudes.empty()) return;
 
@@ -138,16 +167,15 @@ void Visualizer::render(const std::vector<float>& magnitudes) {
     };
 
     if (m_shape == VisualizerShape::Waveform) {
-        // ... (existing waveform logic) ...
         size_t step = std::max((size_t)1, numBars / 2048);
         for (size_t i = 0; i < numBars; i += step) {
-             // ...
              float x = -1.0f + 2.0f * (float)i / (float)numBars;
              float y = magnitudes[i] * m_heightScale;
-             // ...
              vertices.push_back(x); vertices.push_back(y); vertices.push_back(0.0f); vertices.push_back(0.0f);
         }
     } else if (m_shape == VisualizerShape::OscilloscopeXY) {
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE);
         // XY Mode with square aspect ratio and CRT glow
         size_t numSamples = magnitudes.size() / 2;
         size_t step = std::max((size_t)1, numSamples / 2048);
@@ -176,6 +204,20 @@ void Visualizer::render(const std::vector<float>& magnitudes) {
             // Apply aspect correction for square
             x *= xScale;
             y *= yScale;
+
+            // Apply rotation (2D rotation matrix)
+            if (m_rotationAngle != 0.0f) {
+                float cosA = std::cos(m_rotationAngle);
+                float sinA = std::sin(m_rotationAngle);
+                float xRot = x * cosA - y * sinA;
+                float yRot = x * sinA + y * cosA;
+                x = xRot;
+                y = yRot;
+            }
+
+            // Apply flip transformations
+            if (m_flipX) x = -x;
+            if (m_flipY) y = -y;
 
             // Clamp
             x = std::clamp(x, -1.0f, 1.0f);
@@ -226,7 +268,7 @@ void Visualizer::render(const std::vector<float>& magnitudes) {
         GLint colorLoc = glGetUniformLocation(m_shaderProgram, "uColor");
         
         // Pass 1: Wide glow halo (outer)
-        glLineWidth(6.0f);
+        glLineWidth(10.0f);
         glUniform4f(colorLoc, m_r, m_g, m_b, m_a * 0.15f);
         glDrawArrays(GL_LINE_STRIP, 0, vertexCount);
         

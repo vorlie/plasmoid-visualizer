@@ -49,6 +49,8 @@ public:
     void setTestTone(bool enabled) { m_testTone = enabled; }
     void setTestToneType(TestToneType type) { m_testToneType = type; }
     void setTestToneFrequency(float freq) { m_testToneFrequency = freq; }
+    void setTestToneStereo(bool stereo) { m_testToneStereo = stereo; }
+    void setTestToneFrequencyRight(float freq) { m_testToneFrequencyRight = freq; }
     void setTestToneVolume(float vol) { m_testToneVolume = vol; }
     bool initTestTone(); // Initialize device for test tone if needed
 
@@ -75,8 +77,11 @@ private:
     bool m_testTone = false;
     TestToneType m_testToneType = ToneSine;
     float m_testToneFrequency = 440.0f;
+    float m_testToneFrequencyRight = 440.0f; // For stereo mode
+    bool m_testToneStereo = false;
     float m_testToneVolume = 0.5f;
     float m_testTonePhase = 0.0f;
+    float m_testTonePhaseRight = 0.0f; // Separate phase for right channel
 
     bool m_isCaptureMode = false;
 };

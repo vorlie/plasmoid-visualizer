@@ -21,63 +21,74 @@ void AudioEngine::dataCallback(ma_device* pDevice, void* pOutput, const void* pI
 
     ma_uint32 framesRead = 0;
     if (pEngine->m_testTone) {
-        float* pOutputF32 = (float*)pOutput;
-        size_t channels = pEngine->m_isDecoderInitialized ? pEngine->m_decoder.outputChannels : 2;
-        if (channels == 0) channels = 2; // Default if no decoder
-        
-        std::lock_guard<std::mutex> lock(pEngine->m_bufferMutex);
-        if (pEngine->m_circularBuffer.size() < 8192) pEngine->m_circularBuffer.resize(8192, 0.0f);
-
-        for (ma_uint32 i = 0; i < frameCount; ++i) {
-            float sample = 0.0f;
-            float t = pEngine->m_testTonePhase;
+        if (pOutput && !pInput) { // Only generate test tone if in playback mode
+            float* pOutputF32 = (float*)pOutput;
             
-            // Generate Waveform
-            switch (pEngine->m_testToneType) {
-                case ToneSine:
-                    sample = sinf(t);
-                    break;
-                case ToneSquare:
-                    sample = (sinf(t) >= 0) ? 1.0f : -1.0f;
-                    break;
-                case ToneSaw:
-                    sample = 2.0f * (t / (2.0f * M_PI) - floorf(0.5f + t / (2.0f * M_PI)));
-                    break;
-                case ToneTriangle:
-                    sample = 2.0f * fabsf(2.0f * (t / (2.0f * M_PI) - floorf(0.5f + t / (2.0f * M_PI)))) - 1.0f;
-                    break;
-                case ToneNoise:
-                    sample = ((float)rand() / (float)RAND_MAX) * 2.0f - 1.0f;
-                    break;
+            std::lock_guard<std::mutex> lock(pEngine->m_bufferMutex);
+            if (pEngine->m_circularBuffer.size() < 8192) {
+                pEngine->m_circularBuffer.resize(8192, 0.0f);
             }
-            
-            sample *= pEngine->m_testToneVolume;
-            
-            // Write to output
-            if (pOutput) {
-                for (size_t c = 0; c < channels; ++c) {
-                    pOutputF32[i * channels + c] = sample;
+            if (pEngine->m_stereoBuffer.size() < 16384) {
+                pEngine->m_stereoBuffer.resize(16384, 0.0f);
+            }
+
+            for (ma_uint32 i = 0; i < frameCount; ++i) {
+                float sampleLeft = 0.0f;
+                float sampleRight = 0.0f;
+                
+                // Generate left channel
+                float phaseL = pEngine->m_testTonePhase;
+                switch (pEngine->m_testToneType) {
+                    case ToneSine: sampleLeft = std::sin(phaseL); break;
+                    case ToneSquare: sampleLeft = (phaseL < M_PI) ? 1.0f : -1.0f; break;
+                    case ToneSaw: sampleLeft = (phaseL / M_PI) - 1.0f; break;
+                    case ToneTriangle: sampleLeft = (phaseL < M_PI) ? (2.0f * phaseL / M_PI - 1.0f) : (3.0f - 2.0f * phaseL / M_PI); break;
+                    case ToneNoise: sampleLeft = ((float)rand() / RAND_MAX) * 2.0f - 1.0f; break;
+                }
+                sampleLeft *= pEngine->m_testToneVolume;
+                
+                // Generate right channel (different frequency if stereo mode)
+                if (pEngine->m_testToneStereo) {
+                    float phaseR = pEngine->m_testTonePhaseRight;
+                    switch (pEngine->m_testToneType) {
+                        case ToneSine: sampleRight = std::sin(phaseR); break;
+                        case ToneSquare: sampleRight = (phaseR < M_PI) ? 1.0f : -1.0f; break;
+                        case ToneSaw: sampleRight = (phaseR / M_PI) - 1.0f; break;
+                        case ToneTriangle: sampleRight = (phaseR < M_PI) ? (2.0f * phaseR / M_PI - 1.0f) : (3.0f - 2.0f * phaseR / M_PI); break;
+                        case ToneNoise: sampleRight = ((float)rand() / RAND_MAX) * 2.0f - 1.0f; break;
+                    }
+                    sampleRight *= pEngine->m_testToneVolume;
+                } else {
+                    sampleRight = sampleLeft; // Mono mode: duplicate left
+                }
+
+                // Write to output
+                pOutputF32[i * 2 + 0] = sampleLeft;
+                pOutputF32[i * 2 + 1] = sampleRight;
+
+                // Write to circular buffer (Mono mix)
+                float monoSample = (sampleLeft + sampleRight) * 0.5f;
+                pEngine->m_circularBuffer[pEngine->m_writePos] = monoSample;
+                pEngine->m_writePos = (pEngine->m_writePos + 1) % pEngine->m_circularBuffer.size();
+
+                // Write to stereo buffer
+                pEngine->m_stereoBuffer[pEngine->m_stereoWritePos] = sampleLeft;
+                pEngine->m_stereoBuffer[(pEngine->m_stereoWritePos + 1) % pEngine->m_stereoBuffer.size()] = sampleRight;
+                pEngine->m_stereoWritePos = (pEngine->m_stereoWritePos + 2) % pEngine->m_stereoBuffer.size();
+
+                // Advance phases
+                pEngine->m_testTonePhase += 2.0f * M_PI * pEngine->m_testToneFrequency / 44100.0f;
+                if (pEngine->m_testTonePhase > 2.0f * M_PI) pEngine->m_testTonePhase -= 2.0f * M_PI;
+                
+                if (pEngine->m_testToneStereo) {
+                    pEngine->m_testTonePhaseRight += 2.0f * M_PI * pEngine->m_testToneFrequencyRight / 44100.0f;
+                    if (pEngine->m_testTonePhaseRight > 2.0f * M_PI) pEngine->m_testTonePhaseRight -= 2.0f * M_PI;
                 }
             }
-            
-            // Write to circular buffer (Mono)
-            pEngine->m_circularBuffer[pEngine->m_writePos] = sample;
-            pEngine->m_writePos = (pEngine->m_writePos + 1) % pEngine->m_circularBuffer.size();
-
-            // Write to stereo buffer (Duplicate mono for now for test tone, or we could add phase offset for fun?)
-            // Let's just do mono-ish for test tone, so it will be a diagonal line in XY
-            if (pEngine->m_stereoBuffer.size() < 16384) pEngine->m_stereoBuffer.resize(16384, 0.0f);
-            
-            pEngine->m_stereoBuffer[pEngine->m_stereoWritePos] = sample;
-            pEngine->m_stereoBuffer[(pEngine->m_stereoWritePos + 1) % pEngine->m_stereoBuffer.size()] = sample;
-            pEngine->m_stereoWritePos = (pEngine->m_stereoWritePos + 2) % pEngine->m_stereoBuffer.size();
-
-            // Advance phase
-            pEngine->m_testTonePhase += 2.0f * M_PI * pEngine->m_testToneFrequency / 44100.0f; // Assuming 44.1k
-            if (pEngine->m_testTonePhase > 2.0f * M_PI) pEngine->m_testTonePhase -= 2.0f * M_PI;
+            return;
         }
-        return; // Done for test tone
-    } else if (pEngine->m_isCaptureMode) {
+    } // Done for test tone
+    else if (pEngine->m_isCaptureMode) {
         if (pInput) {
             float* pInputF32 = (float*)pInput;
             size_t channels = pEngine->m_device.capture.channels;
