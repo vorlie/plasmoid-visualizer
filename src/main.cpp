@@ -7,6 +7,7 @@
 #include "AudioEngine.hpp"
 #include "AnalysisEngine.hpp"
 #include "Visualizer.hpp"
+#include "ParticleSystem.hpp"
 
 #include <iostream>
 #include <vector>
@@ -19,6 +20,9 @@ struct VisualizerLayer {
     LayerConfig config;
     float color[4] = { 0.0f, 0.8f, 1.0f, 1.0f };
     float barHeight = 0.2f;
+    bool mirrored = false;
+    VisualizerShape shape = VisualizerShape::Bars;
+    float cornerRadius = 0.0f;
     std::vector<float> prevMagnitudes;
     bool visible = true;
 };
@@ -47,12 +51,16 @@ int main() {
     AudioEngine audioEngine;
     AnalysisEngine analysisEngine(8192);
     Visualizer visualizer;
+    ParticleSystem particleSystem;
 
     std::vector<VisualizerLayer> layers;
     // Add default layer
-    layers.push_back({"Default Layer", LayerConfig(), {0.0f, 0.8f, 1.0f, 1.0f}, 0.2f, {}, true});
+    layers.push_back({"Default Layer", LayerConfig(), {0.0f, 0.8f, 1.0f, 1.0f}, 0.2f, false, VisualizerShape::Bars, 0.0f, {}, true});
 
-    bool liveMode = false;
+    // Audio Modes
+    enum AudioMode { ModeFile, ModeLive, ModeTest };
+    int currentAudioMode = ModeFile;
+    
     char filePath[256] = "";
     std::string statusMessage = "Ready";
     ImVec4 statusColor = ImVec4(1, 1, 1, 1);
@@ -64,14 +72,36 @@ int main() {
     bool showLayerManager = true;
     bool showLayerEditor = true;
     bool showDebugInfo = false;
+    bool showParticleSettings = true;
+
+    // Particle Settings
+    bool particlesEnabled = true;
+    float beatSensitivity = 1.3f;
+    int particleCount = 500;
+    float particleSpeed = 1.0f;
+    float particleSize = 5.0f;
+    float particleColor[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
 
     while (!glfwWindowShouldClose(window)) {
         glfwPollEvents();
+        float deltaTime = 1.0f / ImGui::GetIO().Framerate;
 
         // Audio processing
         std::vector<float> audioBuffer;
         audioEngine.getBuffer(audioBuffer, 8192);
         analysisEngine.computeFFT(audioBuffer);
+        
+        bool isBeat = false;
+        if (particlesEnabled) {
+            analysisEngine.setBeatSensitivity(beatSensitivity);
+            isBeat = analysisEngine.detectBeat(deltaTime);
+            
+            particleSystem.setParticleCount(particleCount);
+            particleSystem.setSpeed(particleSpeed);
+            particleSystem.setSize(particleSize);
+            particleSystem.setColor(particleColor[0], particleColor[1], particleColor[2], particleColor[3]);
+            particleSystem.update(deltaTime, isBeat);
+        }
 
         // Rendering
         int display_w, display_h;
@@ -89,7 +119,15 @@ int main() {
             auto magnitudes = analysisEngine.computeLayerMagnitudes(layer.config, layer.prevMagnitudes);
             visualizer.setColor(layer.color[0], layer.color[1], layer.color[2], layer.color[3]);
             visualizer.setHeightScale(layer.barHeight);
+            visualizer.setMirrored(layer.mirrored);
+            visualizer.setShape(layer.shape);
+            visualizer.setCornerRadius(layer.cornerRadius);
             visualizer.render(magnitudes);
+        }
+
+        // Render Particles
+        if (particlesEnabled) {
+            particleSystem.render();
         }
 
         // UI
@@ -103,6 +141,7 @@ int main() {
                 ImGui::MenuItem("Audio Settings", NULL, &showAudioSettings);
                 ImGui::MenuItem("Layer Manager", NULL, &showLayerManager);
                 ImGui::MenuItem("Layer Editor", NULL, &showLayerEditor);
+                ImGui::MenuItem("Particle Settings", NULL, &showParticleSettings);
                 ImGui::MenuItem("Debug Info", NULL, &showDebugInfo);
                 ImGui::EndMenu();
             }
@@ -112,17 +151,24 @@ int main() {
         // Audio Settings Window
         if (showAudioSettings) {
             ImGui::Begin("Audio Settings", &showAudioSettings);
-            if (ImGui::Checkbox("Live Mode (System Audio/Mic)", &liveMode)) {
-                if (liveMode) {
-                    audioEngine.stop();
+            
+            const char* modes[] = { "File Playback", "Live Playback", "Test Tone" };
+            if (ImGui::Combo("Audio Mode", &currentAudioMode, modes, IM_ARRAYSIZE(modes))) {
+                // Stop everything on mode switch
+                audioEngine.stop();
+                audioEngine.stopCapture();
+                audioEngine.setTestTone(false);
+
+                if (currentAudioMode == ModeLive) {
                     audioEngine.startCapture();
-                } else {
-                    audioEngine.stopCapture();
+                } else if (currentAudioMode == ModeTest) {
+                    audioEngine.setTestTone(true);
+                    audioEngine.play();
                 }
             }
             ImGui::Separator();
 
-            if (liveMode) {
+            if (currentAudioMode == ModeLive) {
                 ImGui::Text("Live Mode Active");
                 auto devices = audioEngine.getAvailableDevices(true);
                 static int selectedCaptureDevice = 0;
@@ -130,11 +176,13 @@ int main() {
                 std::vector<const char*> deviceNames;
                 for (const auto& d : devices) deviceNames.push_back(d.name.c_str());
 
-                if (ImGui::Combo("Input Device", &selectedCaptureDevice, deviceNames.data(), deviceNames.size())) {
+                if (!devices.empty() && ImGui::Combo("Input Device", &selectedCaptureDevice, deviceNames.data(), deviceNames.size())) {
                     audioEngine.startCapture(&devices[selectedCaptureDevice].id);
                 }
             } else {
+                // Shared Output Device Selection for File and Test modes
                 static std::vector<AudioEngine::DeviceInfo> outputDevices;
+                // Refresh device list occasionally or if empty
                 if (outputDevices.empty()) outputDevices = audioEngine.getAvailableDevices(false);
                 
                 static int selectedOutputDevice = 0;
@@ -144,37 +192,68 @@ int main() {
                         if (ImGui::Selectable(outputDevices[i].name.c_str(), isSelected)) {
                             selectedOutputDevice = i;
                             audioEngine.setDevice(&outputDevices[i].id);
-                            if (strlen(filePath) > 0) audioEngine.loadFile(filePath);
+                            
+                            // Restart audio subsystem if we change device
+                            if (currentAudioMode == ModeTest) {
+                                audioEngine.initTestTone();
+                                audioEngine.play();
+                            } else if (currentAudioMode == ModeFile && strlen(filePath) > 0) {
+                                audioEngine.loadFile(filePath); // Reload to switch device
+                            }
                         }
                     }
                     ImGui::EndCombo();
                 }
 
-                ImGui::InputText("File Path", filePath, sizeof(filePath));
-                if (ImGui::Button("Load File")) {
-                    std::string path = filePath;
-                    if (!path.empty() && path.front() == '"') path.erase(0, 1);
-                    if (!path.empty() && path.back() == '"') path.pop_back();
+                ImGui::Separator();
+
+                if (currentAudioMode == ModeFile) {
+                    ImGui::InputText("File Path", filePath, sizeof(filePath));
+                    if (ImGui::Button("Load File")) {
+                        std::string path = filePath;
+                        if (!path.empty() && path.front() == '"') path.erase(0, 1);
+                        if (!path.empty() && path.back() == '"') path.pop_back();
+                        
+                        if (audioEngine.loadFile(path)) {
+                            statusMessage = "Loaded: " + path;
+                            statusColor = ImVec4(0, 1, 0, 1);
+                        } else {
+                            statusMessage = "Failed to load: " + path;
+                            statusColor = ImVec4(1, 0, 0, 1);
+                        }
+                    }
+                    ImGui::TextColored(statusColor, "%s", statusMessage.c_str());
+
+                    if (ImGui::Button("Play")) audioEngine.play();
+                    ImGui::SameLine();
+                    if (ImGui::Button("Stop")) audioEngine.stop();
+                } else if (currentAudioMode == ModeTest) {
+                    static float testFreq = 440.0f;
+                    static float testVol = 0.5f;
+                    static int testType = 0; // Sine default
                     
-                    if (audioEngine.loadFile(path)) {
-                        statusMessage = "Loaded: " + path;
-                        statusColor = ImVec4(0, 1, 0, 1);
-                    } else {
-                        statusMessage = "Failed to load: " + path;
-                        statusColor = ImVec4(1, 0, 0, 1);
+                    const char* types[] = { "Sine", "Square", "Sawtooth", "Triangle", "White Noise" };
+                    if (ImGui::Combo("Waveform", &testType, types, IM_ARRAYSIZE(types))) {
+                        audioEngine.setTestToneType((AudioEngine::TestToneType)testType);
+                    }
+
+                    if (ImGui::SliderFloat("Frequency (Hz)", &testFreq, 20.0f, 2000.0f)) {
+                        audioEngine.setTestToneFrequency(testFreq);
+                    }
+                    
+                    if (ImGui::SliderFloat("Volume", &testVol, 0.0f, 1.0f)) {
+                        audioEngine.setTestToneVolume(testVol);
+                    }
+
+                    if (ImGui::Button("Start Tone")) {
+                        audioEngine.initTestTone();
+                        audioEngine.play();
+                    }
+                    ImGui::SameLine();
+                    if (ImGui::Button("Stop Tone")) {
+                        audioEngine.stop();
                     }
                 }
-                ImGui::TextColored(statusColor, "%s", statusMessage.c_str());
-
-                if (ImGui::Button("Play")) audioEngine.play();
-                ImGui::SameLine();
-                if (ImGui::Button("Stop")) audioEngine.stop();
-            }
-
-            static bool testTone = false;
-            if (ImGui::Checkbox("Test Tone (440Hz)", &testTone)) {
-                audioEngine.setTestTone(testTone);
-                if (testTone) audioEngine.play();
             }
             ImGui::End();
         }
@@ -183,8 +262,8 @@ int main() {
         if (showLayerManager) {
             ImGui::Begin("Layer Manager", &showLayerManager);
             if (ImGui::Button("Add Layer")) {
-                layers.push_back({"New Layer", LayerConfig(), {1.0f, 1.0f, 1.0f, 1.0f}, 0.2f, {}, true});
-                selectedLayerIdx = layers.size() - 1;
+                layers.push_back({"New Layer", LayerConfig(), {1.0f, 1.0f, 1.0f, 1.0f}, 0.2f, false, VisualizerShape::Bars, 0.0f, {}, true});
+                selectedLayerIdx = (int)layers.size() - 1;
             }
             ImGui::Separator();
 
@@ -229,6 +308,42 @@ int main() {
             ImGui::SliderFloat("Min Freq", &layer.config.minFreq, 20.0f, 20000.0f);
             ImGui::SliderFloat("Max Freq", &layer.config.maxFreq, 20.0f, 20000.0f);
 
+            ImGui::Separator();
+            ImGui::Text("Visuals");
+            ImGui::Checkbox("Mirror Mode", &layer.mirrored);
+            
+            const char* shapes[] = { "Bars", "Lines", "Dots" };
+            int currentShape = (int)layer.shape;
+            if (ImGui::Combo("Shape", &currentShape, shapes, IM_ARRAYSIZE(shapes))) {
+                layer.shape = (VisualizerShape)currentShape;
+            }
+            
+            if (layer.shape == VisualizerShape::Bars) {
+                ImGui::SliderFloat("Corner Radius", &layer.cornerRadius, 0.0f, 1.0f);
+            }
+
+            ImGui::End();
+        }
+
+        // Particle Settings Window
+        if (showParticleSettings) {
+            ImGui::Begin("Particle Settings", &showParticleSettings);
+            ImGui::Checkbox("Enable Particles", &particlesEnabled);
+            
+            if (particlesEnabled) {
+                ImGui::Separator();
+                ImGui::Text("Beat Detection");
+                ImGui::SliderFloat("Sensitivity", &beatSensitivity, 1.0f, 2.0f);
+                if (isBeat) ImGui::TextColored(ImVec4(0,1,0,1), "BEAT!");
+                else ImGui::Text("Listening...");
+
+                ImGui::Separator();
+                ImGui::Text("Particle Physics");
+                ImGui::SliderInt("Max Count", &particleCount, 100, 2000);
+                ImGui::SliderFloat("Speed/Energy", &particleSpeed, 0.1f, 5.0f);
+                ImGui::SliderFloat("Size", &particleSize, 1.0f, 20.0f);
+                ImGui::ColorEdit4("Color", particleColor);
+            }
             ImGui::End();
         }
 

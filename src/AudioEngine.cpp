@@ -23,26 +23,49 @@ void AudioEngine::dataCallback(ma_device* pDevice, void* pOutput, const void* pI
     if (pEngine->m_testTone) {
         float* pOutputF32 = (float*)pOutput;
         size_t channels = pEngine->m_isDecoderInitialized ? pEngine->m_decoder.outputChannels : 2;
-        if (channels == 0) channels = 2;
+        if (channels == 0) channels = 2; // Default if no decoder
         
         std::lock_guard<std::mutex> lock(pEngine->m_bufferMutex);
         if (pEngine->m_circularBuffer.size() < 8192) pEngine->m_circularBuffer.resize(8192, 0.0f);
 
         for (ma_uint32 i = 0; i < frameCount; ++i) {
-            float sample = sinf(pEngine->m_testTonePhase) * 0.2f;
+            float sample = 0.0f;
+            float t = pEngine->m_testTonePhase;
             
-            // Write to output if available (so we can hear it)
+            // Generate Waveform
+            switch (pEngine->m_testToneType) {
+                case ToneSine:
+                    sample = sinf(t);
+                    break;
+                case ToneSquare:
+                    sample = (sinf(t) >= 0) ? 1.0f : -1.0f;
+                    break;
+                case ToneSaw:
+                    sample = 2.0f * (t / (2.0f * M_PI) - floorf(0.5f + t / (2.0f * M_PI)));
+                    break;
+                case ToneTriangle:
+                    sample = 2.0f * fabsf(2.0f * (t / (2.0f * M_PI) - floorf(0.5f + t / (2.0f * M_PI)))) - 1.0f;
+                    break;
+                case ToneNoise:
+                    sample = ((float)rand() / (float)RAND_MAX) * 2.0f - 1.0f;
+                    break;
+            }
+            
+            sample *= pEngine->m_testToneVolume;
+            
+            // Write to output
             if (pOutput) {
                 for (size_t c = 0; c < channels; ++c) {
                     pOutputF32[i * channels + c] = sample;
                 }
             }
             
-            // Write to circular buffer for visualizer
+            // Write to circular buffer
             pEngine->m_circularBuffer[pEngine->m_writePos] = sample;
             pEngine->m_writePos = (pEngine->m_writePos + 1) % pEngine->m_circularBuffer.size();
 
-            pEngine->m_testTonePhase += 2.0f * M_PI * 440.0f / 44100.0f;
+            // Advance phase
+            pEngine->m_testTonePhase += 2.0f * M_PI * pEngine->m_testToneFrequency / 44100.0f; // Assuming 44.1k
             if (pEngine->m_testTonePhase > 2.0f * M_PI) pEngine->m_testTonePhase -= 2.0f * M_PI;
         }
         return; // Done for test tone
@@ -204,6 +227,31 @@ bool AudioEngine::startCapture(const ma_device_id* pID) {
     m_isDeviceInitialized = true;
     m_isCaptureMode = true;
     m_isPlaying = true;
+    return true;
+}
+
+bool AudioEngine::initTestTone() {
+    stop();
+    stopCapture();
+    
+    // Initialize standard playback device if not already set up
+    if (m_isDeviceInitialized && !m_isCaptureMode) return true;
+
+    ma_device_config deviceConfig = ma_device_config_init(ma_device_type_playback);
+    deviceConfig.playback.pDeviceID = m_useSpecificDevice ? &m_selectedDeviceID : NULL;
+    deviceConfig.playback.format   = ma_format_f32;
+    deviceConfig.playback.channels = 2;
+    deviceConfig.sampleRate        = 44100;
+    deviceConfig.dataCallback      = dataCallback;
+    deviceConfig.pUserData         = this;
+
+    ma_result result = ma_device_init(NULL, &deviceConfig, &m_device);
+    if (result != MA_SUCCESS) {
+        std::cerr << "Failed to init device for test tone. Error: " << result << std::endl;
+        return false;
+    }
+    m_isDeviceInitialized = true;
+    m_isCaptureMode = false;
     return true;
 }
 

@@ -35,6 +35,10 @@ public:
     // Falloff and Gain
     void setGain(float gain) { m_gain = gain; }
     void setFalloff(float falloff) { m_falloff = falloff; }
+    
+    // Beat Detection
+    bool detectBeat(float deltaTime);
+    void setBeatSensitivity(float sensitivity) { m_beatSensitivity = sensitivity; }
 
 private:
     size_t m_fftSize;
@@ -49,7 +53,12 @@ private:
     std::vector<float> m_barPrevMagnitudes;
 
     float m_gain = 1.0f;
-    float m_falloff = 0.9f; // Exponential decay
+    float m_falloff = 0.5f; // Exponential decay
+
+    // Beat Detection State
+    float m_energyAverage = 0.0f;
+    float m_beatSensitivity = 1.3f;
+    float m_beatTimer = 0.0f;
 };
 
 #endif // ANALYSIS_ENGINE_HPP

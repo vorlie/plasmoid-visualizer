@@ -36,7 +36,14 @@ public:
     };
     std::vector<DeviceInfo> getAvailableDevices(bool capture = false);
     void setDevice(const ma_device_id* pID);
+    
+    // Test Tone
+    enum TestToneType { ToneSine, ToneSquare, ToneSaw, ToneTriangle, ToneNoise };
     void setTestTone(bool enabled) { m_testTone = enabled; }
+    void setTestToneType(TestToneType type) { m_testToneType = type; }
+    void setTestToneFrequency(float freq) { m_testToneFrequency = freq; }
+    void setTestToneVolume(float vol) { m_testToneVolume = vol; }
+    bool initTestTone(); // Initialize device for test tone if needed
 
 private:
     static void dataCallback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount);
@@ -53,9 +60,15 @@ private:
 
     ma_device_id m_selectedDeviceID;
     bool m_useSpecificDevice = false;
+    
+    // Test Tone State
     bool m_testTone = false;
+    TestToneType m_testToneType = ToneSine;
+    float m_testToneFrequency = 440.0f;
+    float m_testToneVolume = 0.5f;
+    float m_testTonePhase = 0.0f;
+
     bool m_isCaptureMode = false;
-    float m_testTonePhase = 0;
 };
 
 #endif // AUDIO_ENGINE_HPP

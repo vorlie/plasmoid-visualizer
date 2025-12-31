@@ -117,3 +117,35 @@ float AnalysisEngine::getEnergyInRange(float minFreq, float maxFreq, float sampl
     }
     return energy;
 }
+
+bool AnalysisEngine::detectBeat(float deltaTime) {
+    if (m_magnitudes.empty()) return false;
+
+    // 1. Calculate bass energy (approx 20Hz - 150Hz)
+    // Bin size = 44100 / 8192 ~= 5.38 Hz
+    // 20Hz ~= bin 3, 150Hz ~= bin 27
+    float bassEnergy = 0.0f;
+    int minBin = 3;
+    int maxBin = 27;
+    
+    if (maxBin >= (int)m_magnitudes.size()) maxBin = (int)m_magnitudes.size() - 1;
+
+    for (int i = minBin; i <= maxBin; ++i) {
+        bassEnergy += m_magnitudes[i];
+    }
+    bassEnergy /= (maxBin - minBin + 1);
+
+    // 2. Update moving average
+    m_energyAverage = m_energyAverage * 0.95f + bassEnergy * 0.05f;
+
+    // 3. Check for beat
+    m_beatTimer -= deltaTime;
+    bool isBeat = false;
+    
+    if (m_beatTimer <= 0.0f && bassEnergy > m_energyAverage * m_beatSensitivity && bassEnergy > 0.01f) {
+        isBeat = true;
+        m_beatTimer = 0.1f; // Cooldown (100ms)
+    }
+
+    return isBeat;
+}

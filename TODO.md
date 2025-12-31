@@ -4,11 +4,11 @@ This file tracks planned features, improvements, and ideas for the standalone vi
 
 ## Visuals & Rendering
 - [ ] **Custom Shaders**: Allow users to load custom GLSL fragment shaders for bars (e.g., gradients, glow, textures).
-- [ ] **Bar Shapes**: Add options for rounded bars, lines, or dots.
-- [ ] **Mirror Mode**: Option to mirror the spectrum from the center.
+- [X] **Bar Shapes**: Add options for rounded bars, lines, or dots.
+- [X] **Mirror Mode**: Option to mirror the spectrum from the center.
 - [ ] **Circular Layout**: "Trap Nation" style circular visualizer mode.
 - [ ] **Background Images**: Allow setting a background image or video behind the visualizer.
-- [ ] **Particles System**: Add floating particles/snow that react to the beat (Avee Player style).
+- [X] **Particles System**: Add floating particles/snow that react to the beat (Avee Player style).
 - [ ] **Pulsing Logo**: A central image that scales/pulses with the audio energy.
 
 ## Layer Enhancements
