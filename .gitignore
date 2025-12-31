@@ -37,3 +37,6 @@ PlasmoidVisualizer
 # OS files
 .DS_Store
 Thumbs.db
+
+# ImGui
+imgui.ini

@@ -88,41 +88,56 @@ int main() {
 
         // Audio processing
         std::vector<float> audioBuffer;
-        audioEngine.getBuffer(audioBuffer, 8192);
-        analysisEngine.computeFFT(audioBuffer);
         
         bool isBeat = false;
-        if (particlesEnabled) {
-            analysisEngine.setBeatSensitivity(beatSensitivity);
-            isBeat = analysisEngine.detectBeat(deltaTime);
+        
+        try {
+            audioEngine.getBuffer(audioBuffer, 8192);
             
-            particleSystem.setParticleCount(particleCount);
-            particleSystem.setSpeed(particleSpeed);
-            particleSystem.setSize(particleSize);
-            particleSystem.setColor(particleColor[0], particleColor[1], particleColor[2], particleColor[3]);
-            particleSystem.update(deltaTime, isBeat);
-        }
+            analysisEngine.computeFFT(audioBuffer);
+            if (particlesEnabled) {
+                analysisEngine.setBeatSensitivity(beatSensitivity);
+                isBeat = analysisEngine.detectBeat(deltaTime);
+                
+                particleSystem.update(deltaTime, isBeat);
+            }
 
-        // Rendering
-        int display_w, display_h;
-        glfwGetFramebufferSize(window, &display_w, &display_h);
-        glViewport(0, 0, display_w, display_h);
-        glClearColor(0.05f, 0.05f, 0.05f, 1.0f);
-        glClear(GL_COLOR_BUFFER_BIT);
+            // Rendering
+            int display_w, display_h;
+            glfwGetFramebufferSize(window, &display_w, &display_h);
+            glViewport(0, 0, display_w, display_h);
+            glClearColor(0.05f, 0.05f, 0.05f, 1.0f);
+            glClear(GL_COLOR_BUFFER_BIT);
 
-        // Render layers
-        glEnable(GL_BLEND);
-        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+            // Render layers
+            glEnable(GL_BLEND);
+            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
-        for (auto& layer : layers) {
-            if (!layer.visible) continue;
-            auto magnitudes = analysisEngine.computeLayerMagnitudes(layer.config, layer.prevMagnitudes);
-            visualizer.setColor(layer.color[0], layer.color[1], layer.color[2], layer.color[3]);
-            visualizer.setHeightScale(layer.barHeight);
-            visualizer.setMirrored(layer.mirrored);
-            visualizer.setShape(layer.shape);
-            visualizer.setCornerRadius(layer.cornerRadius);
-            visualizer.render(magnitudes);
+            for (auto& layer : layers) {
+                if (!layer.visible) continue;
+                
+                std::vector<float> renderData;
+                if (layer.shape == VisualizerShape::Waveform) {
+                    if (!audioBuffer.empty()) {
+                        renderData = audioBuffer;
+                    } else {
+                        renderData.assign(128, 0.0f);
+                    }
+                } else {
+                    renderData = analysisEngine.computeLayerMagnitudes(layer.config, layer.prevMagnitudes);
+                }
+                // std::cout << "DEBUG: Rendering Layer " << layer.name << std::endl;
+                visualizer.setColor(layer.color[0], layer.color[1], layer.color[2], layer.color[3]);
+                visualizer.setHeightScale(layer.barHeight);
+                visualizer.setMirrored(layer.mirrored);
+                visualizer.setShape(layer.shape);
+                visualizer.setCornerRadius(layer.cornerRadius);
+                visualizer.render(renderData);
+            }
+        } catch (const std::exception& e) {
+            std::cerr << "EXCEPTION in Main Loop: " << e.what() << std::endl;
+        } catch (...) {
+            std::cerr << "UNKNOWN EXCEPTION in Main Loop" << std::endl;
         }
 
         // Render Particles
@@ -170,22 +185,42 @@ int main() {
 
             if (currentAudioMode == ModeLive) {
                 ImGui::Text("Live Mode Active");
-                auto devices = audioEngine.getAvailableDevices(true);
+                
+                static std::vector<AudioEngine::DeviceInfo> captureDevices;
+                // Fetch devices only once or on demand
+                if (captureDevices.empty() || ImGui::Button("Refresh Devices")) {
+                    captureDevices = audioEngine.getAvailableDevices(true);
+                }
+                ImGui::SameLine(); // align refresh button if it wasn't clicked
+                
                 static int selectedCaptureDevice = 0;
                 
                 std::vector<const char*> deviceNames;
-                for (const auto& d : devices) deviceNames.push_back(d.name.c_str());
+                for (const auto& d : captureDevices) deviceNames.push_back(d.name.c_str());
+                
+                // Safety check for index
+                if (selectedCaptureDevice >= (int)captureDevices.size()) selectedCaptureDevice = 0;
 
-                if (!devices.empty() && ImGui::Combo("Input Device", &selectedCaptureDevice, deviceNames.data(), deviceNames.size())) {
-                    audioEngine.startCapture(&devices[selectedCaptureDevice].id);
+                if (!captureDevices.empty()) {
+                    if (ImGui::Combo("Input Device", &selectedCaptureDevice, deviceNames.data(), deviceNames.size())) {
+                        audioEngine.startCapture(&captureDevices[selectedCaptureDevice].id);
+                    }
+                } else {
+                    ImGui::TextDisabled("No capture devices found");
                 }
+                
             } else {
                 // Shared Output Device Selection for File and Test modes
                 static std::vector<AudioEngine::DeviceInfo> outputDevices;
-                // Refresh device list occasionally or if empty
-                if (outputDevices.empty()) outputDevices = audioEngine.getAvailableDevices(false);
+                // Refresh device list only once or on demand
+                if (outputDevices.empty() || ImGui::Button("Refresh Output Devices")) {
+                    outputDevices = audioEngine.getAvailableDevices(false);
+                }
                 
                 static int selectedOutputDevice = 0;
+                // Safety check for index
+                if (selectedOutputDevice >= (int)outputDevices.size()) selectedOutputDevice = 0;
+
                 if (ImGui::BeginCombo("Output Device", outputDevices.empty() ? "No devices" : outputDevices[selectedOutputDevice].name.c_str())) {
                     for (int i = 0; i < (int)outputDevices.size(); i++) {
                         bool isSelected = (selectedOutputDevice == i);
@@ -312,7 +347,7 @@ int main() {
             ImGui::Text("Visuals");
             ImGui::Checkbox("Mirror Mode", &layer.mirrored);
             
-            const char* shapes[] = { "Bars", "Lines", "Dots" };
+            const char* shapes[] = { "Bars", "Lines", "Dots", "Waveform" };
             int currentShape = (int)layer.shape;
             if (ImGui::Combo("Shape", &currentShape, shapes, IM_ARRAYSIZE(shapes))) {
                 layer.shape = (VisualizerShape)currentShape;

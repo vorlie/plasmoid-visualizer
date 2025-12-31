@@ -8,7 +8,8 @@
 enum class VisualizerShape {
     Bars,
     Lines,
-    Dots
+    Dots,
+    Waveform
 };
 
 class Visualizer {

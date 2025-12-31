@@ -115,7 +115,23 @@ void Visualizer::render(const std::vector<float>& magnitudes) {
         }
     };
 
-    if (m_mirrored) {
+    if (m_shape == VisualizerShape::Waveform) {
+        // Waveform: Draw a continuous line strip centered on Y=0
+        // Input 'magnitudes' is expected to be raw audio samples [-1, 1]
+        // We might want to downsample if there are too many points
+        size_t step = std::max((size_t)1, numBars / 2048); // Limit to ~2000 points
+        
+        for (size_t i = 0; i < numBars; i += step) {
+            float x = -1.0f + 2.0f * (float)i / (float)numBars;
+            float y = magnitudes[i] * m_heightScale;
+            // Clamp to screen
+            if (y > 1.0f) y = 1.0f;
+            if (y < -1.0f) y = -1.0f;
+            
+            // Vertex
+            vertices.push_back(x); vertices.push_back(y); vertices.push_back(0.0f); vertices.push_back(0.0f);
+        }
+    } else if (m_mirrored) {
         for (size_t i = 0; i < numBars; ++i) {
             float h = std::min(magnitudes[i] * m_heightScale, 2.0f);
             // Left side (reversed)
@@ -138,7 +154,7 @@ void Visualizer::render(const std::vector<float>& magnitudes) {
     // Position attribute
     glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)0);
     glEnableVertexAttribArray(0);
-    // LocalPos attribute
+    // LocalPos attribute (unused for waveform but kept for compatibility layout)
     glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)(2 * sizeof(float)));
     glEnableVertexAttribArray(1);
 
@@ -149,6 +165,9 @@ void Visualizer::render(const std::vector<float>& magnitudes) {
     if (m_shape == VisualizerShape::Lines) {
         glLineWidth(2.0f);
         glDrawArrays(GL_LINES, 0, (GLsizei)(vertices.size() / 4));
+    } else if (m_shape == VisualizerShape::Waveform) {
+        glLineWidth(2.0f);
+        glDrawArrays(GL_LINE_STRIP, 0, (GLsizei)(vertices.size() / 4));
     } else {
         glDrawArrays(GL_TRIANGLES, 0, (GLsizei)(vertices.size() / 4));
     }

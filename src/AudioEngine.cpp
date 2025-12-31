@@ -138,6 +138,16 @@ void AudioEngine::dataCallback(ma_device* pDevice, void* pOutput, const void* pI
     }
 }
 
+void AudioEngine::resetDevice() {
+    stop(); // Stop playback
+    if (m_isDeviceInitialized) {
+        ma_device_uninit(&m_device);
+        m_isDeviceInitialized = false;
+    }
+    m_isCaptureMode = false;
+    m_isPlaying = false;
+}
+
 bool AudioEngine::loadFile(const std::string& filePath) {
     if (filePath.empty()) return false;
     m_isPlaying = false;
@@ -154,10 +164,8 @@ bool AudioEngine::loadFile(const std::string& filePath) {
     fclose(f);
     std::cout << "File size: " << fileSize << " bytes" << std::endl;
 
-    if (m_isDeviceInitialized) {
-        ma_device_uninit(&m_device);
-        m_isDeviceInitialized = false;
-    }
+    resetDevice(); // Clean up previous device
+    
     if (m_isDecoderInitialized) {
         ma_decoder_uninit(&m_decoder);
         m_isDecoderInitialized = false;
@@ -187,20 +195,14 @@ bool AudioEngine::loadFile(const std::string& filePath) {
         return false;
     }
     m_isDeviceInitialized = true;
+    m_isCaptureMode = false;
     std::cout << "Audio device initialized: " << m_device.playback.name << std::endl;
-    std::cout << "Decoder Format: " << m_decoder.outputFormat << ", Channels: " << m_decoder.outputChannels << ", Rate: " << m_decoder.outputSampleRate << std::endl;
-    std::cout << "Device Format: " << m_device.playback.format << ", Channels: " << m_device.playback.channels << ", Rate: " << m_device.sampleRate << std::endl;
-    
-    ma_uint64 length;
-    ma_decoder_get_length_in_pcm_frames(&m_decoder, &length);
-    std::cout << "Audio duration: " << (float)length / m_decoder.outputSampleRate << " seconds (" << length << " frames)" << std::endl;
-
+    // ...
     return true;
 }
 
 bool AudioEngine::startCapture(const ma_device_id* pID) {
-    stop();
-    stopCapture();
+    resetDevice(); // Clean up previous device (playback or capture)
 
     ma_device_config deviceConfig = ma_device_config_init(ma_device_type_capture);
     deviceConfig.capture.format = ma_format_f32;
@@ -232,10 +234,11 @@ bool AudioEngine::startCapture(const ma_device_id* pID) {
 
 bool AudioEngine::initTestTone() {
     stop();
-    stopCapture();
-    
     // Initialize standard playback device if not already set up
+    // But if we are in Capture Mode, we MUST reset, even if device is initialized
     if (m_isDeviceInitialized && !m_isCaptureMode) return true;
+    
+    resetDevice();
 
     ma_device_config deviceConfig = ma_device_config_init(ma_device_type_playback);
     deviceConfig.playback.pDeviceID = m_useSpecificDevice ? &m_selectedDeviceID : NULL;

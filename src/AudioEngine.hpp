@@ -46,6 +46,7 @@ public:
     bool initTestTone(); // Initialize device for test tone if needed
 
 private:
+    void resetDevice();
     static void dataCallback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount);
 
     ma_decoder m_decoder;
