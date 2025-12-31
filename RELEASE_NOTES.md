@@ -1,3 +1,76 @@
+# Plasmoid Visualizer v1.3
+
+## Oscilloscope Visualizer Modes
+**New visualization modes for audio analysis:**
+- **Waveform Mode** - Display raw audio as a centered time-domain waveform
+- **Oscilloscope XY Mode** - Map stereo channels to X/Y coordinates for Lissajous figures
+
+**Stabilization Features:**
+- Zero-crossing trigger detection for both Waveform and XY modes
+- Smooth trigger interpolation to eliminate jitter
+- Adjustable time scale slider (0.2x - 2.0x zoom) for detailed waveform inspection
+## Video Export
+**Offline rendering:**
+- Export visualizations directly to MP4 video files
+- FFMPEG integration with stdin piping for efficient processing
+- Configurable resolution (custom width/height)
+- Adjustable framerate (30/60 FPS)
+- Perfect audio sync using precise sample-rate calculations
+- Automatic vertical flip correction for OpenGL coordinate system
+- Progress indication during rendering
+
+## CRT Oscilloscope Aesthetics
+**Authentic oscilloscope visual effects:**
+- Multi-pass glow rendering (3-layer halo effect)
+- Phosphor persistence/decay simulation
+- Square aspect ratio enforcement (1:1) for XY mode
+- Adjustable glow intensity and decay rates
+
+## Multi-Channel Test Tone Generation
+**Enhanced test tone capabilities:**
+- **Stereo Mode** - Independent L/R channel frequency control
+- Separate frequency sliders for Left and Right channels (20Hz - 2kHz)
+- Perfect for creating classic Lissajous patterns (1:2, 2:3, 3:4 ratios)
+- All waveform types available in stereo (Sine, Square, Sawtooth, Triangle, Noise)
+
+##  XY Transformation Controls
+**Advanced Lissajous pattern manipulation:**
+
+- **Rotation** - 0-360° continuous rotation slider
+- **Flip Horizontal** - Mirror pattern on X-axis
+- **Flip Vertical** - Mirror pattern on Y-axis
+- Combinable transformations for viewing patterns from any angle
+
+## Technical Improvements
+- Audio Engine Enhancements
+- Robust device initialization with `resetDevice()` helper
+- Fixed double-initialization crash when switching audio modes
+- Added `readAudioFrames()` for random-access audio reading (video export)
+- Implemented stereo buffer capture (`getStereoBuffer()`)
+- Independent phase tracking for Left/Right test tone channels
+- Sample-rate aware rendering for non-44.1kHz files
+
+## UI/UX Improvements
+- Cached device enumeration to prevent per-frame overhead
+- Manual "Refresh Devices" button
+- Dynamic UI controls (Time Scale, Rotation, Flip) visible only for relevant modes
+- Stereo mode checkbox with conditional L/R frequency sliders
+- Render Video dialog with progress tracking
+
+## Code Quality
+- Refactored main loop logic into reusable `updateVisualizer()` and `renderFrame()` helpers
+- Consistent transformation pipeline: Gain → Aspect → Rotation → Flip → Clamp
+- Exception handling with graceful degradation
+- Clean separation between live rendering and offline video export paths
+
+## Visual Demonstrations
+The Oscilloscope XY mode with CRT glow effects produces stunning Lissajous figures:
+
+- Circle (L=440Hz, R=440Hz, 0° phase)
+- Figure-8 (L=440Hz, R=880Hz, 1:2 ratio)
+- Trefoil (L=440Hz, R=660Hz, 2:3 ratio)
+- Use Rotation + Flip controls to view these patterns from any perspective
+
 # Plasmoid Visualizer v1.2 - Pro Editor & Multi-Layering
 
 This update transforms the standalone application into a professional-grade visualizer editor with advanced layering and a modular interface.
