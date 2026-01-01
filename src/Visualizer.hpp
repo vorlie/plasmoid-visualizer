@@ -28,6 +28,7 @@ public:
     void setViewportSize(int width, int height); // For aspect ratio correction
     void setRotation(float angleRadians); // For XY oscilloscope rotation
     void setFlip(bool flipX, bool flipY); // For XY oscilloscope flip
+    void setBloomIntensity(float intensity); // For XY oscilloscope bloom
 
 private:
     GLuint m_shaderProgram;
@@ -42,6 +43,7 @@ private:
     float m_rotationAngle = 0.0f; // For XY oscilloscope rotation in radians
     bool m_flipX = false;
     bool m_flipY = false;
+    float m_bloomIntensity = 1.0f;
 
     void initShaders();
 };

@@ -88,6 +88,45 @@ void AudioEngine::dataCallback(ma_device* pDevice, void* pOutput, const void* pI
             return;
         }
     } // Done for test tone
+    else if (pEngine->m_oscMusicMode) {
+        if (pOutput && !pInput) {
+            float* pOutputF32 = (float*)pOutput;
+            std::lock_guard<std::mutex> lock(pEngine->m_bufferMutex);
+            
+            if (pEngine->m_oscMusicBuffer.empty()) return;
+
+            for (ma_uint32 i = 0; i < frameCount; ++i) {
+                float sampleL = 0.0f;
+                float sampleR = 0.0f;
+                
+                if (pEngine->m_oscMusicReadPos + 1 < pEngine->m_oscMusicBuffer.size()) {
+                    sampleL = pEngine->m_oscMusicBuffer[pEngine->m_oscMusicReadPos];
+                    sampleR = pEngine->m_oscMusicBuffer[pEngine->m_oscMusicReadPos + 1];
+                    pEngine->m_oscMusicReadPos += 2;
+                } else {
+                    // Loop or stop? Let's loop for preview
+                    pEngine->m_oscMusicReadPos = 0;
+                    sampleL = pEngine->m_oscMusicBuffer[0];
+                    sampleR = pEngine->m_oscMusicBuffer[1];
+                    pEngine->m_oscMusicReadPos = 2;
+                }
+
+                pOutputF32[i * 2 + 0] = sampleL;
+                pOutputF32[i * 2 + 1] = sampleR;
+
+                // Update buffers for visualization
+                if (pEngine->m_circularBuffer.size() < 8192) pEngine->m_circularBuffer.resize(8192, 0.0f);
+                pEngine->m_circularBuffer[pEngine->m_writePos] = (sampleL + sampleR) * 0.5f;
+                pEngine->m_writePos = (pEngine->m_writePos + 1) % pEngine->m_circularBuffer.size();
+
+                if (pEngine->m_stereoBuffer.size() < 16384) pEngine->m_stereoBuffer.resize(16384, 0.0f);
+                pEngine->m_stereoBuffer[pEngine->m_stereoWritePos] = sampleL;
+                pEngine->m_stereoBuffer[(pEngine->m_stereoWritePos + 1) % pEngine->m_stereoBuffer.size()] = sampleR;
+                pEngine->m_stereoWritePos = (pEngine->m_stereoWritePos + 2) % pEngine->m_stereoBuffer.size();
+            }
+        }
+        return;
+    }
     else if (pEngine->m_isCaptureMode) {
         if (pInput) {
             float* pInputF32 = (float*)pInput;
@@ -347,6 +386,30 @@ bool AudioEngine::initTestTone() {
     }
     m_isDeviceInitialized = true;
     m_isCaptureMode = false;
+    return true;
+}
+
+bool AudioEngine::initOscMusic(int sampleRate) {
+    stop();
+    // Even if initialized, we want high sample rate, so re-init if needed
+    resetDevice();
+
+    ma_device_config deviceConfig = ma_device_config_init(ma_device_type_playback);
+    deviceConfig.playback.pDeviceID = m_useSpecificDevice ? &m_selectedDeviceID : NULL;
+    deviceConfig.playback.format   = ma_format_f32;
+    deviceConfig.playback.channels = 2;
+    deviceConfig.sampleRate        = sampleRate;
+    deviceConfig.dataCallback      = dataCallback;
+    deviceConfig.pUserData         = this;
+
+    ma_result result = ma_device_init(NULL, &deviceConfig, &m_device);
+    if (result != MA_SUCCESS) {
+        std::cerr << "Failed to init device for OscMusic at " << sampleRate << "Hz. Error: " << result << std::endl;
+        return false;
+    }
+    m_isDeviceInitialized = true;
+    m_isCaptureMode = false;
+    std::cout << "OscMusic initialized at " << sampleRate << "Hz" << std::endl;
     return true;
 }
 

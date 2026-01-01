@@ -11,12 +11,13 @@ find_package(glfw3 REQUIRED)
 find_package(GLEW REQUIRED)
 
 # Include directories
-include_directories(src include external external/kissfft external/imgui)
+include_directories(src include external external/kissfft external/imgui external/tinyexpr)
 
 # Source files
 file(GLOB_RECURSE SOURCES "src/*.cpp")
 list(APPEND SOURCES 
     "external/kissfft/kiss_fft.c"
+    "external/tinyexpr/tinyexpr.c"
     "external/imgui/imgui.cpp"
     "external/imgui/imgui_draw.cpp"
     "external/imgui/imgui_widgets.cpp"

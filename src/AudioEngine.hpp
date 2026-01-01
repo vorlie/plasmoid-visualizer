@@ -54,6 +54,16 @@ public:
     void setTestToneVolume(float vol) { m_testToneVolume = vol; }
     bool initTestTone(); // Initialize device for test tone if needed
 
+    // Oscilloscope Music Mode
+    void setOscMusicMode(bool enabled) { m_oscMusicMode = enabled; }
+    void setOscMusicBuffer(const std::vector<float>& buffer) { 
+        std::lock_guard<std::mutex> lock(m_bufferMutex);
+        m_oscMusicBuffer = buffer; 
+        m_oscMusicReadPos = 0;
+    }
+    bool isOscMusicMode() const { return m_oscMusicMode; }
+    bool initOscMusic(int sampleRate = 192000);
+
 private:
     void resetDevice();
     static void dataCallback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount);
@@ -84,6 +94,11 @@ private:
     float m_testTonePhaseRight = 0.0f; // Separate phase for right channel
 
     bool m_isCaptureMode = false;
+
+    // OscMusic playback state
+    bool m_oscMusicMode = false;
+    std::vector<float> m_oscMusicBuffer; // Stereo interleaved
+    size_t m_oscMusicReadPos = 0;
 };
 
 #endif // AUDIO_ENGINE_HPP

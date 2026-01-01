@@ -8,6 +8,7 @@
 #include "AnalysisEngine.hpp"
 #include "Visualizer.hpp"
 #include "ParticleSystem.hpp"
+#include "OscMusicEditor.hpp"
 
 #include <iostream>
 #include <vector>
@@ -29,6 +30,7 @@ struct VisualizerLayer {
     float rotation = 0.0f; // For Oscilloscope XY rotation (degrees for UI)
     bool flipX = false; // Horizontal flip for XY
     bool flipY = false; // Vertical flip for XY
+    float bloom = 1.0f; // Bloom intensity for XY
 };
 
 int main() {
@@ -56,13 +58,14 @@ int main() {
     AnalysisEngine analysisEngine(8192);
     Visualizer visualizer;
     ParticleSystem particleSystem;
+    OscMusicEditor oscMusicEditor;
 
     std::vector<VisualizerLayer> layers;
     // Add default layer
     layers.push_back({"Default Layer", LayerConfig(), {0.0f, 0.8f, 1.0f, 1.0f}, 0.2f, false, VisualizerShape::Bars, 0.0f, {}, true});
 
     // Audio Modes
-    enum AudioMode { ModeFile, ModeLive, ModeTest };
+    enum AudioMode { ModeFile, ModeLive, ModeTest, ModeOscMusic };
     int currentAudioMode = ModeFile;
     
     char filePath[256] = "";
@@ -167,6 +170,7 @@ int main() {
             visualizer.setCornerRadius(layer.cornerRadius);
             visualizer.setRotation(layer.rotation * 3.14159f / 180.0f); // Convert degrees to radians
             visualizer.setFlip(layer.flipX, layer.flipY);
+            visualizer.setBloomIntensity(layer.bloom);
             visualizer.render(renderData);
         }
 
@@ -272,6 +276,7 @@ int main() {
                 visualizer.setShape(layer.shape);
                 visualizer.setRotation(layer.rotation * 3.14159f / 180.0f); // Convert degrees to radians
                 visualizer.setFlip(layer.flipX, layer.flipY);
+                visualizer.setBloomIntensity(layer.bloom);
                 visualizer.render(renderData);
             }
         } catch (const std::exception& e) {
@@ -307,17 +312,23 @@ int main() {
         if (showAudioSettings) {
             ImGui::Begin("Audio Settings", &showAudioSettings);
             
-            const char* modes[] = { "File Playback", "Live Playback", "Test Tone" };
+            const char* modes[] = { "File Playback", "Live Playback", "Test Tone", "Oscilloscope Music" };
             if (ImGui::Combo("Audio Mode", &currentAudioMode, modes, IM_ARRAYSIZE(modes))) {
                 // Stop everything on mode switch
                 audioEngine.stop();
                 audioEngine.stopCapture();
                 audioEngine.setTestTone(false);
+                audioEngine.setOscMusicMode(false);
 
                 if (currentAudioMode == ModeLive) {
                     audioEngine.startCapture();
                 } else if (currentAudioMode == ModeTest) {
                     audioEngine.setTestTone(true);
+                    audioEngine.initTestTone();
+                    audioEngine.play();
+                } else if (currentAudioMode == ModeOscMusic) {
+                    audioEngine.setOscMusicMode(true);
+                    audioEngine.initOscMusic(192000);
                     audioEngine.play();
                 }
             }
@@ -553,6 +564,62 @@ int main() {
                     if (ImGui::Button("Stop Tone")) {
                         audioEngine.stop();
                     }
+                } else if (currentAudioMode == ModeOscMusic) {
+                    ImGui::Text("Oscilloscope Music Editor");
+                    
+                    static char xExpr[256] = "sin(f * t * 2 * 3.14159)";
+                    static char yExpr[256] = "cos(f * t * 2 * 3.14159)";
+                    static float duration = 2.0f;
+                    static float baseFreq = 440.0f;
+                    
+                    if (ImGui::InputText("X(t) Expression", xExpr, sizeof(xExpr))) {
+                        oscMusicEditor.setExpressions(xExpr, yExpr);
+                    }
+                    if (ImGui::InputText("Y(t) Expression", yExpr, sizeof(yExpr))) {
+                        oscMusicEditor.setExpressions(xExpr, yExpr);
+                    }
+                    if (ImGui::SliderFloat("Base Frequency (f)", &baseFreq, 20.0f, 2000.0f, "%.1f Hz")) {
+                        oscMusicEditor.setBaseFrequency(baseFreq);
+                    }
+                    ImGui::SliderFloat("Duration (s)", &duration, 0.5f, 10.0f);
+                    
+                    if (!oscMusicEditor.isValid()) {
+                        ImGui::TextColored(ImVec4(1, 0, 0, 1), "Error: %s", oscMusicEditor.getErrorMessage().c_str());
+                    }
+
+                    if (ImGui::Button("Preview")) {
+                        if (oscMusicEditor.isValid()) {
+                            std::vector<float> buffer = oscMusicEditor.generateStereoBuffer(duration, 192000);
+                            audioEngine.setOscMusicBuffer(buffer);
+                            audioEngine.initOscMusic(192000);
+                            audioEngine.setOscMusicMode(true);
+                            audioEngine.play();
+                            
+                            // Auto-set visualization to XY
+                            for (auto& l : layers) {
+                                if (l.visible) {
+                                    l.shape = VisualizerShape::OscilloscopeXY;
+                                }
+                            }
+                        }
+                    }
+                    ImGui::SameLine();
+                    if (ImGui::Button("Stop Preview")) {
+                        audioEngine.stop();
+                    }
+                    
+                    ImGui::Separator();
+                    ImGui::Text("Presets");
+                    auto presets = oscMusicEditor.getPresets();
+                    for (int i = 0; i < (int)presets.size(); i++) {
+                        if (ImGui::Button(presets[i].name.c_str())) {
+                            oscMusicEditor.loadPreset(i);
+                            strncpy(xExpr, oscMusicEditor.getXExpression().c_str(), sizeof(xExpr));
+                            strncpy(yExpr, oscMusicEditor.getYExpression().c_str(), sizeof(yExpr));
+                        }
+                        if ((i + 1) % 4 != 0) ImGui::SameLine();
+                    }
+                    ImGui::NewLine();
                 }
             }
             ImGui::End();
@@ -630,6 +697,7 @@ int main() {
                 ImGui::SliderFloat("Rotation", &layer.rotation, 0.0f, 360.0f);
                 ImGui::Checkbox("Flip Horizontal", &layer.flipX);
                 ImGui::Checkbox("Flip Vertical", &layer.flipY);
+                ImGui::SliderFloat("Bloom Intensity", &layer.bloom, 0.0f, 5.0f);
             }
 
             ImGui::End();

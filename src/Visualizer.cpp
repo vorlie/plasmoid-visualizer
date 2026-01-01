@@ -110,6 +110,10 @@ void Visualizer::setFlip(bool flipX, bool flipY) {
     m_flipY = flipY;
 }
 
+void Visualizer::setBloomIntensity(float intensity) {
+    m_bloomIntensity = intensity;
+}
+
 void Visualizer::drawFullscreenDimmer(float decayRate) {
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
@@ -263,24 +267,34 @@ void Visualizer::render(const std::vector<float>& magnitudes) {
         glLineWidth(2.0f);
         glDrawArrays(GL_LINE_STRIP, 0, (GLsizei)(vertices.size() / 4));
     } else if (m_shape == VisualizerShape::OscilloscopeXY) {
-        // CRT Glow Effect: Multi-pass with decreasing thickness and alpha
+        // CRT Glow Effect: Multi-pass with additive blending
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE); // Additive blending for "glow" overlap
+        
         GLsizei vertexCount = (GLsizei)(vertices.size() / 4);
         GLint colorLoc = glGetUniformLocation(m_shaderProgram, "uColor");
         
-        // Pass 1: Wide glow halo (outer)
+        // Pass 1: Massive outer halo (very faint)
+        glLineWidth(20.0f);
+        glUniform4f(colorLoc, m_r, m_g, m_b, m_a * 0.05f * m_bloomIntensity);
+        glDrawArrays(GL_LINE_STRIP, 0, vertexCount);
+
+        // Pass 2: Wide glow halo
         glLineWidth(10.0f);
-        glUniform4f(colorLoc, m_r, m_g, m_b, m_a * 0.15f);
+        glUniform4f(colorLoc, m_r, m_g, m_b, m_a * 0.15f * m_bloomIntensity);
         glDrawArrays(GL_LINE_STRIP, 0, vertexCount);
         
-        // Pass 2: Medium glow
+        // Pass 3: Medium glow
         glLineWidth(4.0f);
-        glUniform4f(colorLoc, m_r, m_g, m_b, m_a * 0.35f);
+        glUniform4f(colorLoc, m_r, m_g, m_b, m_a * 0.4f * m_bloomIntensity);
         glDrawArrays(GL_LINE_STRIP, 0, vertexCount);
         
-        // Pass 3: Core line (bright)
+        // Pass 4: Core line (bright)
         glLineWidth(2.0f);
-        glUniform4f(colorLoc, m_r, m_g, m_b, m_a);
+        glUniform4f(colorLoc, m_r, m_g, m_b, m_a * m_bloomIntensity);
         glDrawArrays(GL_LINE_STRIP, 0, vertexCount);
+
+        // Restore standard blending for other layers
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     } else {
         glDrawArrays(GL_TRIANGLES, 0, (GLsizei)(vertices.size() / 4));
     }
