@@ -1,3 +1,36 @@
+# Plasmoid Visualizer v1.4 - Persistence & Polish
+
+This update brings the standalone application to a "production-ready" state with standardized configuration, a playlist system, and refined visual isolation.
+
+## Configuration & Persistence
+- **TOML Settings**: Transitioned to a robust TOML-based configuration backend using `toml++`.
+- **XDG Compliance**: Settings are now saved to `~/.config/PlasmoidVisualizerStd/config.toml` (Linux standard).
+- **Auto-Save/Load**: Your layers, colors, and folder paths are automatically restored on startup.
+- **Commit Reference**: `d2badfc`
+
+## Playlist & Library
+- **Music Folder Scanning**: Added a dedicated Playlist window that scans folders for `.mp3`, `.wav`, `.flac`, and `.ogg` files.
+- **Instant Playback**: Quick-select songs from your collection with automatic "File Mode" switching.
+- **Commit Reference**: `d2badfc`
+
+## Visual Refinement & FBO Isolation
+- **FBO Persistence**: Visualizer effects (Glow, Bloom, Phosphor Decay) are now isolated in a Framebuffer Object.
+- **Ghosting Fix**: UI windows no longer "bake" into the background trace—they stay crisp and clean.
+- **Analog Graticule**: Added a 10x10 graticule grid for the Oscilloscope XY mode with proper aspect ratio centering.
+- **Quad Shader Dimmer**: Modernized the phosphor decay pass to use a dedicated quad shader for better performance and compatibility.
+- **Commit Reference**: `c263050`
+
+## Oscilloscope Music Editor
+- **Expression Parsing**: Write custom mathematical functions for `X(t)` and `Y(t)`.
+- **Dynamic Visuals**: Generate complex Lissajous patterns and rhythmic geometry through math.
+- **Commit Reference**: `8f24602`
+
+## Bug Fixes & QoL
+- Fixed ImGui `EndChild()` assertion failure in the Playlist window.
+- Improved viewport synchronization to keep visuals centered during window resizing.
+- Standardized the background to pure black for maximum contrast.
+
+---
 # Plasmoid Visualizer v1.3
 
 ## Oscilloscope Visualizer Modes
