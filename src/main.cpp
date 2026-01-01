@@ -37,6 +37,7 @@ struct VisualizerLayer {
     bool flipY = false; // Vertical flip for XY
     float bloom = 1.0f; // Bloom intensity for XY
     bool showGrid = true; // For Oscilloscope XY
+    float traceWidth = 2.0f; // Thickness for all line-based shapes
 };
 
 int main() {
@@ -149,6 +150,7 @@ int main() {
             cl.flipY = l.flipY;
             cl.bloom = l.bloom;
             cl.showGrid = l.showGrid;
+            cl.traceWidth = l.traceWidth;
             config.layers.push_back(cl);
         }
         ConfigManager::save("", config); // empty means default path
@@ -191,6 +193,7 @@ int main() {
                     l.flipY = cl.flipY;
                     l.bloom = cl.bloom;
                     l.showGrid = cl.showGrid;
+                    l.traceWidth = cl.traceWidth;
                     layers.push_back(l);
                 }
             }
@@ -287,6 +290,7 @@ int main() {
                 visualizer.setFlip(layer.flipX, layer.flipY);
                 visualizer.setBloomIntensity(layer.bloom);
                 visualizer.setGridEnabled(layer.showGrid);
+                visualizer.setTraceWidth(layer.traceWidth);
                 visualizer.render(renderData);
             }
 
@@ -768,7 +772,9 @@ int main() {
                 ImGui::Checkbox("Flip Horizontal", &layer.flipX);
                 ImGui::Checkbox("Flip Vertical", &layer.flipY);
                 ImGui::SliderFloat("Bloom Intensity", &layer.bloom, 0.0f, 5.0f);
-                ImGui::Checkbox("Show Osc Grid", &layer.showGrid);
+                ImGui::ColorEdit4("Color", layer.color);
+                ImGui::Separator();
+                ImGui::SliderFloat("Trace Thickness", &layer.traceWidth, 1.0f, 10.0f);
             }
 
             ImGui::End();

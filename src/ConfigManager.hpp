@@ -24,8 +24,9 @@ struct ConfigLayer {
     float rotation;
     bool flipX;
     bool flipY;
-    float bloom;
-    bool showGrid;
+    float bloom = 1.0f;
+    bool showGrid = true;
+    float traceWidth = 2.0f;
 };
 
 struct AppConfig {

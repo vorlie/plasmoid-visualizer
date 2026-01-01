@@ -49,7 +49,8 @@ bool ConfigManager::save(const std::string& filename, const AppConfig& config) {
             {"flip_x", layer.flipX},
             {"flip_y", layer.flipY},
             {"bloom", layer.bloom},
-            {"show_grid", layer.showGrid}
+            {"show_grid", layer.showGrid},
+            {"trace_width", layer.traceWidth}
         });
     }
     tbl.insert_or_assign("layers", layersArray);
@@ -113,6 +114,7 @@ bool ConfigManager::load(const std::string& filename, AppConfig& config) {
                     l.flipY = (*layerTbl)["flip_y"].value_or(false);
                     l.bloom = (*layerTbl)["bloom"].value_or(1.0f);
                     l.showGrid = (*layerTbl)["show_grid"].value_or(true);
+                    l.traceWidth = (*layerTbl)["trace_width"].value_or(2.0f);
                     
                     config.layers.push_back(l);
                 }

@@ -30,6 +30,7 @@ public:
     void setFlip(bool flipX, bool flipY); // For XY oscilloscope flip
     void setBloomIntensity(float intensity); // For XY oscilloscope bloom
     void setGridEnabled(bool enabled) { m_showGrid = enabled; }
+    void setTraceWidth(float width) { m_traceWidth = width; }
 
     // FBO Persistence
     void setupPersistence(int width, int height);
@@ -53,6 +54,7 @@ private:
     bool m_flipY = false;
     float m_bloomIntensity = 1.0f;
     bool m_showGrid = true;
+    float m_traceWidth = 2.0f;
 
     // FBO Persistence
     GLuint m_fbo = 0;

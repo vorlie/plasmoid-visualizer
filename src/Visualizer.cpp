@@ -370,10 +370,10 @@ void Visualizer::render(const std::vector<float>& magnitudes) {
     glUniform1i(glGetUniformLocation(m_shaderProgram, "uShape"), (int)m_shape);
 
     if (m_shape == VisualizerShape::Lines) {
-        glLineWidth(2.0f);
+        glLineWidth(m_traceWidth);
         glDrawArrays(GL_LINES, 0, (GLsizei)(vertices.size() / 4));
     } else if (m_shape == VisualizerShape::Waveform) {
-        glLineWidth(2.0f);
+        glLineWidth(m_traceWidth);
         glDrawArrays(GL_LINE_STRIP, 0, (GLsizei)(vertices.size() / 4));
     } else if (m_shape == VisualizerShape::OscilloscopeXY) {
         // Draw Grid first
@@ -399,6 +399,7 @@ void Visualizer::render(const std::vector<float>& magnitudes) {
         glUseProgram(m_shaderProgram);
         glBlendFunc(GL_SRC_ALPHA, GL_ONE); // Additive blending for "glow" overlap
         
+        glLineWidth(m_traceWidth); // This line is added as per instruction
         GLsizei vertexCount = (GLsizei)(vertices.size() / 4);
         GLint colorLoc = glGetUniformLocation(m_shaderProgram, "uColor");
         

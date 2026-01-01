@@ -59,6 +59,19 @@ kpackagetool6 --type Plasma/Applet --install plasma_widget
 - **Grid System**: 10x10 graticule grid that follows the trace aspect ratio perfectly.
 - **Transformations**: Real-time rotation, flipping, and scaling.
 
+---
+
+## 🎨 Pro Tips: Oscilloscope Mastery
+
+To get the most stunning, laser-sharp visuals from the Oscilloscope XY mode, follow these best practices:
+
+- **Sample Rate is King**: Use **96kHz or 192kHz** audio files when possible. Higher sample rates provide more points per frame, resulting in silky-smooth curves instead of jagged lines.
+- **Lossless Only**: Avoid low-bitrate MP3s. Compression artifacts often appear as "fuzz" or "noise" on the oscilloscope trace. For the cleanest visuals, stick to **FLAC or WAV**.
+- **Phase is Everything**: Oscilloscope XY mode relies on the difference between the Left and Right channels. Pure mono audio will only appear as a diagonal line. Experiment with **stereo imaging effects** and **chorus** to add depth and volume to your patterns.
+- **The 1:1 Rule**: Our visualizer automatically enforces a square aspect ratio. Use the **Rotation** and **Trace Thickness** controls to fine-tune the "phosphor" look for your specific screen resolution.
+
+---
+
 ### 📂 Management & Persistence
 - **Playlist & Scanning**: Specify a music folder and browse your library instantly.
 - **XDG Standards**: Configuration is stored properly in standard Linux user directories.
