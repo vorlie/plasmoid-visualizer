@@ -9,6 +9,11 @@
 #include "Visualizer.hpp"
 #include "ParticleSystem.hpp"
 #include "OscMusicEditor.hpp"
+#include "ConfigManager.hpp"
+#include <filesystem>
+#include <algorithm>
+
+namespace fs = std::filesystem;
 
 #include <iostream>
 #include <vector>
@@ -88,6 +93,112 @@ int main() {
     float particleSpeed = 1.0f;
     float particleSize = 5.0f;
     float particleColor[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
+
+    char musicFolderPath[256] = "";
+    std::vector<std::string> playlistFiles;
+    bool showPlaylist = true;
+    float phosphorDecay = 0.1f;
+
+    auto scanMusicFolder = [&](const std::string& path) {
+        playlistFiles.clear();
+        if (path.empty() || !fs::exists(path) || !fs::is_directory(path)) return;
+        try {
+            for (const auto& entry : fs::directory_iterator(path)) {
+                if (entry.is_regular_file()) {
+                    std::string ext = entry.path().extension().string();
+                    std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+                    if (ext == ".mp3" || ext == ".wav" || ext == ".flac" || ext == ".ogg") {
+                        playlistFiles.push_back(entry.path().filename().string());
+                    }
+                }
+            }
+            std::sort(playlistFiles.begin(), playlistFiles.end());
+        } catch (...) {}
+    };
+
+    auto saveSettings = [&]() {
+        AppConfig config;
+        config.musicFolder = musicFolderPath;
+        config.particlesEnabled = particlesEnabled;
+        config.beatSensitivity = beatSensitivity;
+        config.particleCount = particleCount;
+        config.particleSpeed = particleSpeed;
+        config.particleSize = particleSize;
+        std::copy(std::begin(particleColor), std::end(particleColor), std::begin(config.particleColor));
+        config.phosphorDecay = phosphorDecay;
+        config.audioMode = currentAudioMode;
+
+        for (auto& l : layers) {
+            ConfigLayer cl;
+            cl.name = l.name;
+            cl.gain = l.config.gain;
+            cl.falloff = l.config.falloff;
+            cl.minFreq = l.config.minFreq;
+            cl.maxFreq = l.config.maxFreq;
+            cl.numBars = l.config.numBars;
+            std::copy(std::begin(l.color), std::end(l.color), std::begin(cl.color));
+            cl.barHeight = l.barHeight;
+            cl.mirrored = l.mirrored;
+            cl.shape = (int)l.shape;
+            cl.cornerRadius = l.cornerRadius;
+            cl.visible = l.visible;
+            cl.timeScale = l.timeScale;
+            cl.rotation = l.rotation;
+            cl.flipX = l.flipX;
+            cl.flipY = l.flipY;
+            cl.bloom = l.bloom;
+            config.layers.push_back(cl);
+        }
+        ConfigManager::save("", config); // empty means default path
+        statusMessage = "Config saved to " + ConfigManager::getConfigPath();
+        statusColor = ImVec4(0, 1, 1, 1);
+    };
+
+    auto loadSettings = [&]() {
+        AppConfig config;
+        if (ConfigManager::load("", config)) { // empty means default path
+            strncpy(musicFolderPath, config.musicFolder.c_str(), sizeof(musicFolderPath));
+            particlesEnabled = config.particlesEnabled;
+            beatSensitivity = config.beatSensitivity;
+            particleCount = config.particleCount;
+            particleSpeed = config.particleSpeed;
+            particleSize = config.particleSize;
+            std::copy(std::begin(config.particleColor), std::end(config.particleColor), std::begin(particleColor));
+            phosphorDecay = config.phosphorDecay;
+            currentAudioMode = (AudioMode)config.audioMode;
+
+            if (!config.layers.empty()) {
+                layers.clear();
+                for (auto& cl : config.layers) {
+                    VisualizerLayer l;
+                    l.name = cl.name;
+                    l.config.gain = cl.gain;
+                    l.config.falloff = cl.falloff;
+                    l.config.minFreq = cl.minFreq;
+                    l.config.maxFreq = cl.maxFreq;
+                    l.config.numBars = cl.numBars;
+                    std::copy(std::begin(cl.color), std::end(cl.color), std::begin(l.color));
+                    l.barHeight = cl.barHeight;
+                    l.mirrored = cl.mirrored;
+                    l.shape = (VisualizerShape)cl.shape;
+                    l.cornerRadius = cl.cornerRadius;
+                    l.visible = cl.visible;
+                    l.timeScale = cl.timeScale;
+                    l.rotation = cl.rotation;
+                    l.flipX = cl.flipX;
+                    l.flipY = cl.flipY;
+                    l.bloom = cl.bloom;
+                    layers.push_back(l);
+                }
+            }
+            scanMusicFolder(musicFolderPath);
+            statusMessage = "Config loaded from " + ConfigManager::getConfigPath();
+            statusColor = ImVec4(0, 1, 0, 1);
+        }
+    };
+
+    // Initial load
+    loadSettings();
 
     // Helper to update logic (Beat detection, particles)
     auto updateVisualizer = [&](float dt, const std::vector<float>& buffer) {
@@ -181,7 +292,6 @@ int main() {
 
     float smoothTriggerOffset = 0.0f;
     float triggerLevel = 0.05f;
-    float phosphorDecay = 0.1f;
 
     while (!glfwWindowShouldClose(window)) {
         glfwPollEvents();
@@ -297,11 +407,19 @@ int main() {
 
         // Main Menu Bar
         if (ImGui::BeginMainMenuBar()) {
+            if (ImGui::BeginMenu("File")) {
+                if (ImGui::MenuItem("Save Config")) saveSettings();
+                if (ImGui::MenuItem("Load Config")) loadSettings();
+                ImGui::Separator();
+                if (ImGui::MenuItem("Exit")) glfwSetWindowShouldClose(window, true);
+                ImGui::EndMenu();
+            }
             if (ImGui::BeginMenu("Windows")) {
                 ImGui::MenuItem("Audio Settings", NULL, &showAudioSettings);
                 ImGui::MenuItem("Layer Manager", NULL, &showLayerManager);
                 ImGui::MenuItem("Layer Editor", NULL, &showLayerEditor);
                 ImGui::MenuItem("Particle Settings", NULL, &showParticleSettings);
+                ImGui::MenuItem("Playlist", NULL, &showPlaylist);
                 ImGui::MenuItem("Debug Info", NULL, &showDebugInfo);
                 ImGui::EndMenu();
             }
@@ -700,6 +818,38 @@ int main() {
                 ImGui::SliderFloat("Bloom Intensity", &layer.bloom, 0.0f, 5.0f);
             }
 
+            ImGui::End();
+        }
+
+        // Playlist Window
+        if (showPlaylist) {
+            ImGui::Begin("Playlist", &showPlaylist);
+            if (ImGui::InputText("Music Folder", musicFolderPath, sizeof(musicFolderPath))) {
+                scanMusicFolder(musicFolderPath);
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Refresh")) scanMusicFolder(musicFolderPath);
+
+            ImGui::Separator();
+            if (ImGui::BeginChild("FileList")) {
+                for (const auto& file : playlistFiles) {
+                    bool isSelected = (std::string(filePath).find(file) != std::string::npos);
+                    if (ImGui::Selectable(file.c_str(), isSelected)) {
+                        fs::path fullPath = fs::path(musicFolderPath) / file;
+                        strncpy(filePath, fullPath.string().c_str(), sizeof(filePath));
+                        if (audioEngine.loadFile(filePath)) {
+                            currentAudioMode = ModeFile;
+                            audioEngine.play();
+                            statusMessage = "Playing: " + file;
+                            statusColor = ImVec4(0, 1, 0, 1);
+                        } else {
+                            statusMessage = "Failed to load: " + file;
+                            statusColor = ImVec4(1, 0, 0, 1);
+                        }
+                    }
+                }
+                ImGui::EndChild();
+            }
             ImGui::End();
         }
 

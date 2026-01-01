@@ -11,7 +11,7 @@ find_package(glfw3 REQUIRED)
 find_package(GLEW REQUIRED)
 
 # Include directories
-include_directories(src include external external/kissfft external/imgui external/tinyexpr)
+include_directories(src include external external/kissfft external/imgui external/tinyexpr external/tomlplusplus)
 
 # Source files
 file(GLOB_RECURSE SOURCES "src/*.cpp")
