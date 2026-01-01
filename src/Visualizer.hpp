@@ -29,9 +29,17 @@ public:
     void setRotation(float angleRadians); // For XY oscilloscope rotation
     void setFlip(bool flipX, bool flipY); // For XY oscilloscope flip
     void setBloomIntensity(float intensity); // For XY oscilloscope bloom
+    void setGridEnabled(bool enabled) { m_showGrid = enabled; }
+
+    // FBO Persistence
+    void setupPersistence(int width, int height);
+    void beginPersistence();
+    void endPersistence();
+    void drawPersistenceBuffer();
 
 private:
     GLuint m_shaderProgram;
+    GLuint m_quadShaderProgram;
     GLuint m_vao, m_vbo;
     float m_heightScale = 0.2f;
     bool m_mirrored = false;
@@ -44,8 +52,17 @@ private:
     bool m_flipX = false;
     bool m_flipY = false;
     float m_bloomIntensity = 1.0f;
+    bool m_showGrid = true;
+
+    // FBO Persistence
+    GLuint m_fbo = 0;
+    GLuint m_fboTexture = 0;
+    int m_fboWidth = 0;
+    int m_fboHeight = 0;
+    GLuint m_quadVAO = 0, m_quadVBO = 0;
 
     void initShaders();
+    void initQuad();
 };
 
 #endif // VISUALIZER_HPP

@@ -36,6 +36,7 @@ struct VisualizerLayer {
     bool flipX = false; // Horizontal flip for XY
     bool flipY = false; // Vertical flip for XY
     float bloom = 1.0f; // Bloom intensity for XY
+    bool showGrid = true; // For Oscilloscope XY
 };
 
 int main() {
@@ -147,6 +148,7 @@ int main() {
             cl.flipX = l.flipX;
             cl.flipY = l.flipY;
             cl.bloom = l.bloom;
+            cl.showGrid = l.showGrid;
             config.layers.push_back(cl);
         }
         ConfigManager::save("", config); // empty means default path
@@ -188,6 +190,7 @@ int main() {
                     l.flipX = cl.flipX;
                     l.flipY = cl.flipY;
                     l.bloom = cl.bloom;
+                    l.showGrid = cl.showGrid;
                     layers.push_back(l);
                 }
             }
@@ -199,96 +202,6 @@ int main() {
 
     // Initial load
     loadSettings();
-
-    // Helper to update logic (Beat detection, particles)
-    auto updateVisualizer = [&](float dt, const std::vector<float>& buffer) {
-        analysisEngine.computeFFT(buffer);
-        
-        bool isBeat = false;
-        if (particlesEnabled) {
-            analysisEngine.setBeatSensitivity(beatSensitivity);
-            isBeat = analysisEngine.detectBeat(dt);
-            
-            particleSystem.setParticleCount(particleCount);
-            particleSystem.setSpeed(particleSpeed);
-            particleSystem.setSize(particleSize);
-            particleSystem.setColor(particleColor[0], particleColor[1], particleColor[2], particleColor[3]);
-            particleSystem.update(dt, isBeat);
-        }
-    };
-
-    // Helper to render scene (Background, Layers, Particles) - No UI
-    auto renderFrame = [&](int width, int height, const std::vector<float>& monoBuffer, const std::vector<float>& stereoBuffer) {
-        glViewport(0, 0, width, height);
-        glClearColor(0.05f, 0.05f, 0.05f, 1.0f);
-        glClear(GL_COLOR_BUFFER_BIT);
-
-        glEnable(GL_BLEND);
-        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-        
-        // Update visualizer viewport for aspect correction
-        visualizer.setViewportSize(width, height);
-
-        for (auto& layer : layers) {
-            if (!layer.visible) continue;
-            
-            std::vector<float> renderData;
-            if (layer.shape == VisualizerShape::Waveform) {
-                if (!monoBuffer.empty()) {
-                    // Apply Triggering (Mono)
-                    size_t triggerOffset = 0;
-                    for (size_t i = 0; i < 512 && i + 1 < monoBuffer.size(); ++i) {
-                        if (monoBuffer[i] < 0.0f && monoBuffer[i+1] >= 0.0f) {
-                            triggerOffset = i;
-                            break;
-                        }
-                    }
-                    size_t copyLen = std::min((size_t)2048, monoBuffer.size() - triggerOffset);
-                    renderData.assign(monoBuffer.begin() + triggerOffset, monoBuffer.begin() + triggerOffset + copyLen);
-                } else {
-                    renderData.assign(128, 0.0f);
-                }
-            } else if (layer.shape == VisualizerShape::OscilloscopeXY) {
-                size_t baseFrames = 2048;
-                size_t requestFrames = (size_t)(baseFrames * layer.timeScale);
-                
-                // For XY we use stereoBuffer
-                if (!stereoBuffer.empty()) {
-                    size_t triggerOffset = 0;
-                     // Stride is 2 for stereo
-                    for (size_t i = 0; i < 512 && (i + 1) * 2 < stereoBuffer.size(); ++i) {
-                        float current = stereoBuffer[i * 2];
-                        float next = stereoBuffer[(i + 1) * 2];
-                        if (current < 0.0f && next >= 0.05f) {
-                            triggerOffset = i * 2;
-                            break;
-                        }
-                    }
-                    size_t available = stereoBuffer.size() - triggerOffset;
-                    size_t copySize = std::min(available, requestFrames * 2);
-                    renderData.assign(stereoBuffer.begin() + triggerOffset, stereoBuffer.begin() + triggerOffset + copySize);
-                } else {
-                    renderData.assign(256, 0.0f);
-                }
-            } else {
-                renderData = analysisEngine.computeLayerMagnitudes(layer.config, layer.prevMagnitudes);
-            }
-
-            visualizer.setColor(layer.color[0], layer.color[1], layer.color[2], layer.color[3]);
-            visualizer.setHeightScale(layer.barHeight);
-            visualizer.setMirrored(layer.mirrored);
-            visualizer.setShape(layer.shape);
-            visualizer.setCornerRadius(layer.cornerRadius);
-            visualizer.setRotation(layer.rotation * 3.14159f / 180.0f); // Convert degrees to radians
-            visualizer.setFlip(layer.flipX, layer.flipY);
-            visualizer.setBloomIntensity(layer.bloom);
-            visualizer.render(renderData);
-        }
-
-        if (particlesEnabled) {
-            particleSystem.render();
-        }
-    };
 
     float smoothTriggerOffset = 0.0f;
     float triggerLevel = 0.05f;
@@ -310,10 +223,12 @@ int main() {
                 particleSystem.update(deltaTime, isBeat);
             }
 
-            // 1. PRE-RENDER PHASE (Phosphor Decay)
+            // 1. PERSISTENCE PASS (Render to FBO)
             int display_w, display_h;
             glfwGetFramebufferSize(window, &display_w, &display_h);
-            glViewport(0, 0, display_w, display_h);
+            
+            visualizer.setupPersistence(display_w, display_h);
+            visualizer.beginPersistence();
 
             bool usePersistence = false;
             for (auto& l : layers) {
@@ -325,11 +240,10 @@ int main() {
             if (usePersistence) {
                 visualizer.drawFullscreenDimmer(phosphorDecay); 
             } else {
-                glClearColor(0.05f, 0.05f, 0.05f, 1.0f);
+                glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
                 glClear(GL_COLOR_BUFFER_BIT);
             }
 
-            // 2. LAYER RENDERING
             glEnable(GL_BLEND);
             glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
@@ -338,7 +252,6 @@ int main() {
                 
                 std::vector<float> renderData;
                 if (layer.shape == VisualizerShape::Waveform) {
-                    // Waveform Logic (Standard)
                     size_t triggerOffset = 0;
                     for (size_t i = 0; i < 512 && i + 1 < audioBuffer.size(); ++i) {
                         if (audioBuffer[i] < 0.0f && audioBuffer[i+1] >= 0.0f) {
@@ -347,58 +260,54 @@ int main() {
                     }
                     size_t copyLen = std::min((size_t)2048, audioBuffer.size() - triggerOffset);
                     renderData.assign(audioBuffer.begin() + triggerOffset, audioBuffer.begin() + triggerOffset + copyLen);
-
                 } else if (layer.shape == VisualizerShape::OscilloscopeXY) {
-                    size_t baseFrames = 2048;
-                    size_t requestFrames = (size_t)(baseFrames * layer.timeScale);
-                    std::vector<float> stereoData;
-                    audioEngine.getStereoBuffer(stereoData, requestFrames + 512);
-                    
-                    if (!stereoData.empty()) {
-                        size_t targetOffset = 0;
-                        
-                        if (triggerLevel > 0.0f) { // Only trigger if level > 0
-                            for (size_t i = 0; i < 512 && (i + 1) * 2 < stereoData.size(); ++i) {
-                                if (stereoData[i * 2] < 0.0f && stereoData[(i + 1) * 2] >= triggerLevel) {
-                                    targetOffset = i * 2;
-                                    break;
-                                }
+                    size_t requestFrames = (size_t)(2048 * layer.timeScale);
+                    if (audioEngine.getChannels() == 2) {
+                        std::vector<float> stereo;
+                        audioEngine.getStereoBuffer(stereo, 8192);
+                        size_t triggerOffset = 0;
+                        for (size_t i = 0; i < 512 && (i + 1) * 2 < stereo.size(); ++i) {
+                            if (stereo[i * 2] < 0.0f && stereo[(i + 1) * 2] >= 0.05f) {
+                                triggerOffset = i * 2; break;
                             }
-                            smoothTriggerOffset += (targetOffset - smoothTriggerOffset) * 0.1f; 
-                        } else {
-                            smoothTriggerOffset = 0; 
                         }
-
-                        size_t finalOffset = (size_t)smoothTriggerOffset;
-                        if (finalOffset % 2 != 0) finalOffset--;
-                        
-                        size_t available = stereoData.size() - finalOffset;
-                        size_t copySize = std::min(available, requestFrames * 2);
-                        renderData.assign(stereoData.begin() + finalOffset, stereoData.begin() + finalOffset + copySize);
+                        size_t copySize = std::min(stereo.size() - triggerOffset, requestFrames * 2);
+                        renderData.assign(stereo.begin() + triggerOffset, stereo.begin() + triggerOffset + copySize);
                     }
                 } else {
                     renderData = analysisEngine.computeLayerMagnitudes(layer.config, layer.prevMagnitudes);
                 }
 
-                visualizer.setViewportSize(display_w, display_h);
                 visualizer.setColor(layer.color[0], layer.color[1], layer.color[2], layer.color[3]);
                 visualizer.setHeightScale(layer.barHeight);
+                visualizer.setMirrored(layer.mirrored);
                 visualizer.setShape(layer.shape);
-                visualizer.setRotation(layer.rotation * 3.14159f / 180.0f); // Convert degrees to radians
+                visualizer.setCornerRadius(layer.cornerRadius);
+                visualizer.setRotation(layer.rotation * 3.14159f / 180.0f);
                 visualizer.setFlip(layer.flipX, layer.flipY);
                 visualizer.setBloomIntensity(layer.bloom);
+                visualizer.setGridEnabled(layer.showGrid);
                 visualizer.render(renderData);
             }
+
+            if (particlesEnabled) {
+                particleSystem.render();
+            }
+            
+            visualizer.endPersistence();
+
+            // 2. MAIN PASS (Clear UI and Draw visuals)
+            glViewport(0, 0, display_w, display_h);
+            glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+            glClear(GL_COLOR_BUFFER_BIT);
+
+            visualizer.drawPersistenceBuffer();
         } catch (const std::exception& e) {
             std::cerr << "EXCEPTION in Main Loop: " << e.what() << std::endl;
         } catch (...) {
             std::cerr << "UNKNOWN EXCEPTION in Main Loop" << std::endl;
         }
 
-        // Render Particles
-        if (particlesEnabled) {
-            particleSystem.render();
-        }
 
         // UI
         ImGui_ImplOpenGL3_NewFrame();
@@ -595,7 +504,16 @@ int main() {
                                     }
 
                                     // 2. Update Physics
-                                    updateVisualizer(dt, monoAudio);
+                                    analysisEngine.computeFFT(monoAudio);
+                                    if (particlesEnabled) {
+                                        analysisEngine.setBeatSensitivity(beatSensitivity);
+                                        bool isBeat = analysisEngine.detectBeat((float)dt);
+                                        particleSystem.setParticleCount(particleCount);
+                                        particleSystem.setSpeed(particleSpeed);
+                                        particleSystem.setSize(particleSize);
+                                        particleSystem.setColor(particleColor[0], particleColor[1], particleColor[2], particleColor[3]);
+                                        particleSystem.update((float)dt, isBeat);
+                                    }
 
                                     // 3. Render
                                     static GLuint fbo = 0, tex = 0, rbo = 0;
@@ -614,7 +532,41 @@ int main() {
                                     }
                                     
                                     glBindFramebuffer(GL_FRAMEBUFFER, fbo);
-                                    renderFrame(vidWidth, vidHeight, monoAudio, frameAudio);
+                                    glViewport(0, 0, vidWidth, vidHeight);
+                                    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+                                    glClear(GL_COLOR_BUFFER_BIT);
+
+                                    glEnable(GL_BLEND);
+                                    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+                                    
+                                    visualizer.setViewportSize(vidWidth, vidHeight);
+                                    for (auto& layer : layers) {
+                                        if (!layer.visible) continue;
+                                        
+                                        std::vector<float> renderData;
+                                        if (layer.shape == VisualizerShape::Waveform) {
+                                            renderData.assign(frameAudio.begin(), frameAudio.begin() + std::min((size_t)2048, frameAudio.size()));
+                                        } else if (layer.shape == VisualizerShape::OscilloscopeXY) {
+                                            renderData = frameAudio; // frameAudio is already stereo
+                                        } else {
+                                            renderData = analysisEngine.computeLayerMagnitudes(layer.config, layer.prevMagnitudes);
+                                        }
+
+                                        visualizer.setColor(layer.color[0], layer.color[1], layer.color[2], layer.color[3]);
+                                        visualizer.setHeightScale(layer.barHeight);
+                                        visualizer.setMirrored(layer.mirrored);
+                                        visualizer.setShape(layer.shape);
+                                        visualizer.setCornerRadius(layer.cornerRadius);
+                                        visualizer.setRotation(layer.rotation * 3.14159f / 180.0f);
+                                        visualizer.setFlip(layer.flipX, layer.flipY);
+                                        visualizer.setBloomIntensity(layer.bloom);
+                                        visualizer.setGridEnabled(layer.showGrid);
+                                        visualizer.render(renderData);
+                                    }
+
+                                    if (particlesEnabled) {
+                                        particleSystem.render();
+                                    }
                                     
                                     // 4. Read Pixels
                                     glReadPixels(0, 0, vidWidth, vidHeight, GL_RGB, GL_UNSIGNED_BYTE, pixels.data());
@@ -816,6 +768,7 @@ int main() {
                 ImGui::Checkbox("Flip Horizontal", &layer.flipX);
                 ImGui::Checkbox("Flip Vertical", &layer.flipY);
                 ImGui::SliderFloat("Bloom Intensity", &layer.bloom, 0.0f, 5.0f);
+                ImGui::Checkbox("Show Osc Grid", &layer.showGrid);
             }
 
             ImGui::End();
@@ -848,8 +801,8 @@ int main() {
                         }
                     }
                 }
-                ImGui::EndChild();
             }
+            ImGui::EndChild();
             ImGui::End();
         }
 

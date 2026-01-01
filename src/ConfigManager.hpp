@@ -5,11 +5,6 @@
 #include <vector>
 #include "Visualizer.hpp"
 
-// Forward declaration of VisualizerLayer from main.cpp
-// Since VisualizerLayer is defined in main.cpp, we might want to move it to a shared header
-// or just define a serializable version here.
-// For now, let's assume we move the struct to a header or duplicate structure for config.
-
 struct ConfigLayer {
     std::string name;
     // LayerConfig fields
@@ -30,6 +25,7 @@ struct ConfigLayer {
     bool flipX;
     bool flipY;
     float bloom;
+    bool showGrid;
 };
 
 struct AppConfig {

@@ -43,8 +43,37 @@ void main() {
 }
 )";
 
+const char* quadVertexShaderSource = R"(
+#version 330 core
+layout (location = 0) in vec2 aPos;
+layout (location = 1) in vec2 aTexCoord;
+out vec2 TexCoord;
+void main() {
+    gl_Position = vec4(aPos, 0.0, 1.0);
+    TexCoord = aTexCoord;
+}
+)";
+
+const char* quadFragmentShaderSource = R"(
+#version 330 core
+out vec4 FragColor;
+in vec2 TexCoord;
+uniform sampler2D screenTexture;
+uniform bool uUseTexture;
+uniform vec4 uColor;
+void main() {
+    if (uUseTexture) {
+        vec4 texColor = texture(screenTexture, TexCoord);
+        FragColor = vec4(texColor.rgb, 1.0);
+    } else {
+        FragColor = uColor;
+    }
+}
+)";
+
 Visualizer::Visualizer() {
     initShaders();
+    initQuad();
     glGenVertexArrays(1, &m_vao);
     glGenBuffers(1, &m_vbo);
 }
@@ -71,6 +100,20 @@ void Visualizer::initShaders() {
 
     glDeleteShader(vertexShader);
     glDeleteShader(fragmentShader);
+
+    // Quad Shader
+    GLuint qvs = glCreateShader(GL_VERTEX_SHADER);
+    glShaderSource(qvs, 1, &quadVertexShaderSource, NULL);
+    glCompileShader(qvs);
+    GLuint qfs = glCreateShader(GL_FRAGMENT_SHADER);
+    glShaderSource(qfs, 1, &quadFragmentShaderSource, NULL);
+    glCompileShader(qfs);
+    m_quadShaderProgram = glCreateProgram();
+    glAttachShader(m_quadShaderProgram, qvs);
+    glAttachShader(m_quadShaderProgram, qfs);
+    glLinkProgram(m_quadShaderProgram);
+    glDeleteShader(qvs);
+    glDeleteShader(qfs);
 }
 
 void Visualizer::setHeightScale(float scale) {
@@ -114,23 +157,95 @@ void Visualizer::setBloomIntensity(float intensity) {
     m_bloomIntensity = intensity;
 }
 
+void Visualizer::setupPersistence(int width, int height) {
+    setViewportSize(width, height);
+    if (m_fboWidth == width && m_fboHeight == height) return;
+    
+    if (m_fbo) {
+        glDeleteFramebuffers(1, &m_fbo);
+        glDeleteTextures(1, &m_fboTexture);
+    }
+    
+    m_fboWidth = width;
+    m_fboHeight = height;
+    
+    glGenFramebuffers(1, &m_fbo);
+    glBindFramebuffer(GL_FRAMEBUFFER, m_fbo);
+    
+    glGenTextures(1, &m_fboTexture);
+    glBindTexture(GL_TEXTURE_2D, m_fboTexture);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, m_fboTexture, 0);
+    
+    if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
+        std::cerr << "ERROR::FRAMEBUFFER:: Framebuffer is not complete!" << std::endl;
+        
+    // Clear the new FBO to black initially
+    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+}
+
+void Visualizer::beginPersistence() {
+    if (!m_fbo) return;
+    glBindFramebuffer(GL_FRAMEBUFFER, m_fbo);
+    glViewport(0, 0, m_fboWidth, m_fboHeight);
+}
+
+void Visualizer::endPersistence() {
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+}
+
+void Visualizer::drawPersistenceBuffer() {
+    if (!m_fbo) return;
+    glUseProgram(m_quadShaderProgram);
+    glUniform1i(glGetUniformLocation(m_quadShaderProgram, "uUseTexture"), 1); 
+    glBindVertexArray(m_quadVAO);
+    glBindTexture(GL_TEXTURE_2D, m_fboTexture);
+    glDrawArrays(GL_TRIANGLES, 0, 6);
+    glUseProgram(0);
+}
+
+void Visualizer::initQuad() {
+    float quadVertices[] = {
+        // positions   // texCoords
+        -1.0f,  1.0f,  0.0f, 1.0f,
+        -1.0f, -1.0f,  0.0f, 0.0f,
+         1.0f, -1.0f,  1.0f, 0.0f,
+
+        -1.0f,  1.0f,  0.0f, 1.0f,
+         1.0f, -1.0f,  1.0f, 0.0f,
+         1.0f,  1.0f,  1.0f, 1.0f
+    };
+    glGenVertexArrays(1, &m_quadVAO);
+    glGenBuffers(1, &m_quadVBO);
+    glBindVertexArray(m_quadVAO);
+    glBindBuffer(GL_ARRAY_BUFFER, m_quadVBO);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(quadVertices), &quadVertices, GL_STATIC_DRAW);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)0);
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)(2 * sizeof(float)));
+}
+
 void Visualizer::drawFullscreenDimmer(float decayRate) {
+    glUseProgram(m_quadShaderProgram);
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
-    // Draw a simple black quad over the whole screen [-1, 1]
-    static float quadVertices[] = {
-        -1.0f, -1.0f,  1.0f, -1.0f,  -1.0f,  1.0f,
-        -1.0f,  1.0f,  1.0f, -1.0f,   1.0f,  1.0f
-    };
+    GLint colorLoc = glGetUniformLocation(m_quadShaderProgram, "uColor");
+    glUniform4f(colorLoc, 0.0f, 0.0f, 0.0f, decayRate);
+    glUniform1i(glGetUniformLocation(m_quadShaderProgram, "uUseTexture"), 0); // Tell shader not to use texture
 
-    // Use a basic shader or just raw GL for this specific task
-    glColor4f(0.0f, 0.0f, 0.0f, decayRate); 
-    glBegin(GL_TRIANGLES);
-    for(int i=0; i<6; ++i) {
-        glVertex2f(quadVertices[i*2], quadVertices[i*2+1]);
-    }
-    glEnd();
+    glBindVertexArray(m_quadVAO);
+    glDrawArrays(GL_TRIANGLES, 0, 6);
+    
+    glUniform1i(glGetUniformLocation(m_quadShaderProgram, "uUseTexture"), 1); // Reset
+    glUseProgram(0);
 }
 
 void Visualizer::render(const std::vector<float>& magnitudes) {
@@ -138,6 +253,13 @@ void Visualizer::render(const std::vector<float>& magnitudes) {
 
     std::vector<float> vertices;
     size_t numBars = magnitudes.size();
+
+    // Aspect ratio correction (Square for XY)
+    float xScale = 1.0f;
+    float yScale = 1.0f;
+    float aspectRatio = (float)m_viewportWidth / (float)m_viewportHeight;
+    if (aspectRatio > 1.0f) xScale = 1.0f / aspectRatio;
+    else yScale = aspectRatio;
     
     // Calculate bar width based on mode
     float effectiveBarWidth = m_mirrored ? (1.0f / numBars) : (2.0f / numBars);
@@ -183,19 +305,6 @@ void Visualizer::render(const std::vector<float>& magnitudes) {
         // XY Mode with square aspect ratio and CRT glow
         size_t numSamples = magnitudes.size() / 2;
         size_t step = std::max((size_t)1, numSamples / 2048);
-
-        // Calculate aspect ratio correction for square display
-        float aspectRatio = (float)m_viewportWidth / (float)m_viewportHeight;
-        float xScale = 1.0f;
-        float yScale = 1.0f;
-        
-        if (aspectRatio > 1.0f) {
-            // Width > Height: compress X
-            xScale = 1.0f / aspectRatio;
-        } else {
-            // Height > Width: compress Y
-            yScale = aspectRatio;
-        }
 
         for (size_t i = 0; i < numSamples; i += step) {
             float l = magnitudes[i * 2];
@@ -267,7 +376,27 @@ void Visualizer::render(const std::vector<float>& magnitudes) {
         glLineWidth(2.0f);
         glDrawArrays(GL_LINE_STRIP, 0, (GLsizei)(vertices.size() / 4));
     } else if (m_shape == VisualizerShape::OscilloscopeXY) {
+        // Draw Grid first
+        if (m_showGrid) {
+            glUseProgram(0);
+            glLineWidth(1.0f);
+            // Very subtle dark version of the color
+            glColor4f(m_r * 0.15f, m_g * 0.15f, m_b * 0.15f, m_a * 0.4f);
+            glBegin(GL_LINES);
+            for (int i = -5; i <= 5; ++i) {
+                float p = i * 0.2f;
+                // Vertical
+                glVertex2f(p * xScale, -1.0f * yScale);
+                glVertex2f(p * xScale, 1.0f * yScale);
+                // Horizontal
+                glVertex2f(-1.0f * xScale, p * yScale);
+                glVertex2f(1.0f * xScale, p * yScale);
+            }
+            glEnd();
+        }
+
         // CRT Glow Effect: Multi-pass with additive blending
+        glUseProgram(m_shaderProgram);
         glBlendFunc(GL_SRC_ALPHA, GL_ONE); // Additive blending for "glow" overlap
         
         GLsizei vertexCount = (GLsizei)(vertices.size() / 4);
