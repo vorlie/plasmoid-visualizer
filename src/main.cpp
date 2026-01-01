@@ -772,7 +772,6 @@ int main() {
                 ImGui::Checkbox("Flip Horizontal", &layer.flipX);
                 ImGui::Checkbox("Flip Vertical", &layer.flipY);
                 ImGui::SliderFloat("Bloom Intensity", &layer.bloom, 0.0f, 5.0f);
-                ImGui::ColorEdit4("Color", layer.color);
                 ImGui::Separator();
                 ImGui::SliderFloat("Trace Thickness", &layer.traceWidth, 1.0f, 10.0f);
             }

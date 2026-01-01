@@ -18,7 +18,8 @@ This update brings the standalone application to a "production-ready" state with
 - **Ghosting Fix**: UI windows no longer "bake" into the background trace—they stay crisp and clean.
 - **Analog Graticule**: Added a 10x10 graticule grid for the Oscilloscope XY mode with proper aspect ratio centering.
 - **Quad Shader Dimmer**: Modernized the phosphor decay pass to use a dedicated quad shader for better performance and compatibility.
-- **Commit Reference**: `c263050`
+- **Trace Thickness**: Added a dedicated slider to adjust the physical width of the sweep line for all line-based visualizers.
+- **Commit Reference**: `c263050`, `5425d19`
 
 ## Oscilloscope Music Editor
 - **Expression Parsing**: Write custom mathematical functions for `X(t)` and `Y(t)`.
