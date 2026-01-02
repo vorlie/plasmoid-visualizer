@@ -477,7 +477,7 @@ int main() {
                                               std::to_string(vidWidth) + "x" + std::to_string(vidHeight) + 
                                               " -pix_fmt rgb24 -r " + std::to_string(vidFps) + 
                                               " -i - -i \"" + std::string(filePath) + 
-                                              "\" -vf vflip -c:v libx264 -preset fast -pix_fmt yuv420p -c:a copy -shortest \"" + std::string(outPath) + "\"";
+                                              "\" -vf \"vflip,colorspace=all=bt709:iall=bt709\" -c:v libx264 -crf 16 -preset veryslow -pix_fmt yuv444p -c:a copy -shortest \"" + std::string(outPath) + "\"";
                             
                             FILE* pipe = popen(cmd.c_str(), "w");
                             if (pipe) {
