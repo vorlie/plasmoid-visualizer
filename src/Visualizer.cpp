@@ -248,6 +248,35 @@ void Visualizer::drawFullscreenDimmer(float decayRate) {
     glUseProgram(0);
 }
 
+void Visualizer::renderGrid() {
+    if (!m_showGrid) return;
+
+    float xScale = 1.0f;
+    float yScale = 1.0f;
+    float aspectRatio = (float)m_viewportWidth / (float)m_viewportHeight;
+    if (aspectRatio > 1.0f) {
+        xScale = 1.0f / aspectRatio;
+    } else {
+        yScale = aspectRatio;
+    }
+
+    glUseProgram(0);
+    glLineWidth(1.0f);
+    // Very subtle dark version of the color
+    glColor4f(m_r * 0.15f, m_g * 0.15f, m_b * 0.15f, m_a * 0.4f);
+    glBegin(GL_LINES);
+    for (int i = -5; i <= 5; ++i) {
+        float p = i * 0.2f;
+        // Vertical
+        glVertex2f(p * xScale, -1.0f * yScale);
+        glVertex2f(p * xScale, 1.0f * yScale);
+        // Horizontal
+        glVertex2f(-1.0f * xScale, p * yScale);
+        glVertex2f(1.0f * xScale, p * yScale);
+    }
+    glEnd();
+}
+
 void Visualizer::render(const std::vector<float>& magnitudes) {
     if (magnitudes.empty()) return;
 
@@ -376,25 +405,6 @@ void Visualizer::render(const std::vector<float>& magnitudes) {
         glLineWidth(m_traceWidth);
         glDrawArrays(GL_LINE_STRIP, 0, (GLsizei)(vertices.size() / 4));
     } else if (m_shape == VisualizerShape::OscilloscopeXY) {
-        // Draw Grid first
-        if (m_showGrid) {
-            glUseProgram(0);
-            glLineWidth(1.0f);
-            // Very subtle dark version of the color
-            glColor4f(m_r * 0.15f, m_g * 0.15f, m_b * 0.15f, m_a * 0.4f);
-            glBegin(GL_LINES);
-            for (int i = -5; i <= 5; ++i) {
-                float p = i * 0.2f;
-                // Vertical
-                glVertex2f(p * xScale, -1.0f * yScale);
-                glVertex2f(p * xScale, 1.0f * yScale);
-                // Horizontal
-                glVertex2f(-1.0f * xScale, p * yScale);
-                glVertex2f(1.0f * xScale, p * yScale);
-            }
-            glEnd();
-        }
-
         // CRT Glow Effect: Multi-pass with additive blending
         glUseProgram(m_shaderProgram);
         glBlendFunc(GL_SRC_ALPHA, GL_ONE); // Additive blending for "glow" overlap

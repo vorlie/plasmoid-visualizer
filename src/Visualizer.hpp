@@ -19,6 +19,7 @@ public:
     ~Visualizer();
 
     void render(const std::vector<float>& magnitudes);
+    void renderGrid();
     void drawFullscreenDimmer(float decayRate);
     void setHeightScale(float scale);
     void setColor(float r, float g, float b, float a);

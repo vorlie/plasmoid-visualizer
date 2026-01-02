@@ -86,7 +86,8 @@ int main() {
     bool showLayerManager = true;
     bool showLayerEditor = true;
     bool showDebugInfo = false;
-    bool showParticleSettings = true;
+    bool showParticleSettings = false;
+    bool showGlobalSettings = true;
 
     // Particle Settings
     bool particlesEnabled = false;
@@ -250,9 +251,73 @@ int main() {
             glEnable(GL_BLEND);
             glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
-            for (auto& layer : layers) {
-                if (!layer.visible) continue;
-                
+            // Separate layers based on persistence requirement
+            std::vector<VisualizerLayer*> persistentLayers;
+            std::vector<VisualizerLayer*> directLayers;
+            for (auto& l : layers) {
+                if (!l.visible) continue;
+                if (l.shape == VisualizerShape::OscilloscopeXY) persistentLayers.push_back(&l);
+                else directLayers.push_back(&l);
+            }
+
+            // Render persistent layers to FBO
+            for (auto* layerPtr : persistentLayers) {
+                auto& layer = *layerPtr;
+                std::vector<float> renderData;
+                // ... (data preparation same as before) ...
+                size_t requestFrames = (size_t)(2048 * layer.timeScale);
+                if (audioEngine.getChannels() == 2) {
+                    std::vector<float> stereo;
+                    audioEngine.getStereoBuffer(stereo, 8192);
+                    size_t triggerOffset = 0;
+                    for (size_t i = 0; i < 512 && (i + 1) * 2 < stereo.size(); ++i) {
+                        if (stereo[i * 2] < 0.0f && stereo[(i + 1) * 2] >= 0.05f) {
+                            triggerOffset = i * 2; break;
+                        }
+                    }
+                    size_t copySize = std::min(stereo.size() - triggerOffset, requestFrames * 2);
+                    renderData.assign(stereo.begin() + triggerOffset, stereo.begin() + triggerOffset + copySize);
+                }
+
+                visualizer.setColor(layer.color[0], layer.color[1], layer.color[2], layer.color[3]);
+                visualizer.setHeightScale(layer.barHeight);
+                visualizer.setMirrored(layer.mirrored);
+                visualizer.setShape(layer.shape);
+                visualizer.setCornerRadius(layer.cornerRadius);
+                visualizer.setRotation(layer.rotation * 3.14159f / 180.0f);
+                visualizer.setFlip(layer.flipX, layer.flipY);
+                visualizer.setBloomIntensity(layer.bloom);
+                visualizer.setGridEnabled(layer.showGrid);
+                visualizer.setTraceWidth(layer.traceWidth);
+                visualizer.render(renderData);
+            }
+
+            // (Optional) Particles with persistence? Generally yes for trails.
+            if (particlesEnabled) {
+                particleSystem.render();
+            }
+            
+            visualizer.endPersistence();
+
+            // 2. MAIN PASS (Draw to screen)
+            glViewport(0, 0, display_w, display_h);
+            glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+            glClear(GL_COLOR_BUFFER_BIT);
+
+            // 2.a Draw Persistence results with additive blending
+            glEnable(GL_BLEND);
+            glBlendFunc(GL_ONE, GL_ONE); 
+            visualizer.drawPersistenceBuffer();
+            
+            // 2.b Restore standard blending for UI and other layers
+            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+            // 2.c Draw Grid (on top)
+            visualizer.renderGrid();
+
+            // 2.d Render non-persistent layers directly
+            for (auto* layerPtr : directLayers) {
+                auto& layer = *layerPtr;
                 std::vector<float> renderData;
                 if (layer.shape == VisualizerShape::Waveform) {
                     size_t triggerOffset = 0;
@@ -263,20 +328,6 @@ int main() {
                     }
                     size_t copyLen = std::min((size_t)2048, audioBuffer.size() - triggerOffset);
                     renderData.assign(audioBuffer.begin() + triggerOffset, audioBuffer.begin() + triggerOffset + copyLen);
-                } else if (layer.shape == VisualizerShape::OscilloscopeXY) {
-                    size_t requestFrames = (size_t)(2048 * layer.timeScale);
-                    if (audioEngine.getChannels() == 2) {
-                        std::vector<float> stereo;
-                        audioEngine.getStereoBuffer(stereo, 8192);
-                        size_t triggerOffset = 0;
-                        for (size_t i = 0; i < 512 && (i + 1) * 2 < stereo.size(); ++i) {
-                            if (stereo[i * 2] < 0.0f && stereo[(i + 1) * 2] >= 0.05f) {
-                                triggerOffset = i * 2; break;
-                            }
-                        }
-                        size_t copySize = std::min(stereo.size() - triggerOffset, requestFrames * 2);
-                        renderData.assign(stereo.begin() + triggerOffset, stereo.begin() + triggerOffset + copySize);
-                    }
                 } else {
                     renderData = analysisEngine.computeLayerMagnitudes(layer.config, layer.prevMagnitudes);
                 }
@@ -293,19 +344,6 @@ int main() {
                 visualizer.setTraceWidth(layer.traceWidth);
                 visualizer.render(renderData);
             }
-
-            if (particlesEnabled) {
-                particleSystem.render();
-            }
-            
-            visualizer.endPersistence();
-
-            // 2. MAIN PASS (Clear UI and Draw visuals)
-            glViewport(0, 0, display_w, display_h);
-            glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-            glClear(GL_COLOR_BUFFER_BIT);
-
-            visualizer.drawPersistenceBuffer();
         } catch (const std::exception& e) {
             std::cerr << "EXCEPTION in Main Loop: " << e.what() << std::endl;
         } catch (...) {
@@ -333,6 +371,7 @@ int main() {
                 ImGui::MenuItem("Layer Editor", NULL, &showLayerEditor);
                 ImGui::MenuItem("Particle Settings", NULL, &showParticleSettings);
                 ImGui::MenuItem("Playlist", NULL, &showPlaylist);
+                ImGui::MenuItem("Global Settings", NULL, &showGlobalSettings);
                 ImGui::MenuItem("Debug Info", NULL, &showDebugInfo);
                 ImGui::EndMenu();
             }
@@ -841,6 +880,19 @@ int main() {
             ImGui::Text("Is Playing: %s", audioEngine.isPlaying() ? "Yes" : "No");
             ImGui::Text("Channels: %d", (int)audioEngine.getChannels());
             ImGui::Text("Position: %.2f s", audioEngine.getPosition());
+            ImGui::End();
+        }
+        if (showGlobalSettings) {
+            ImGui::Begin("Global Settings", &showGlobalSettings);
+            ImGui::Text("Persistence / CRT Effects");
+            ImGui::SliderFloat("Phosphor Decay", &phosphorDecay, 0.01f, 0.5f);
+            ImGui::SameLine();
+            if (ImGui::Button("Reset Decay")) phosphorDecay = 0.1f;
+            
+            ImGui::Separator();
+            ImGui::Text("Lower decay = longer trails.");
+            ImGui::TextWrapped("If the background looks grey/milky, reset the decay or set it higher (e.g., 0.1).");
+            
             ImGui::End();
         }
 
