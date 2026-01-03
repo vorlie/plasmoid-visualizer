@@ -50,7 +50,10 @@ bool ConfigManager::save(const std::string& filename, const AppConfig& config) {
             {"flip_y", layer.flipY},
             {"bloom", layer.bloom},
             {"show_grid", layer.showGrid},
-            {"trace_width", layer.traceWidth}
+            {"trace_width", layer.traceWidth},
+            {"fill_opacity", layer.fillOpacity},
+            {"beam_head_size", layer.beamHeadSize},
+            {"velocity_modulation", layer.velocityModulation}
         });
     }
     tbl.insert_or_assign("layers", layersArray);
@@ -115,6 +118,9 @@ bool ConfigManager::load(const std::string& filename, AppConfig& config) {
                     l.bloom = (*layerTbl)["bloom"].value_or(1.0f);
                     l.showGrid = (*layerTbl)["show_grid"].value_or(true);
                     l.traceWidth = (*layerTbl)["trace_width"].value_or(2.0f);
+                    l.fillOpacity = (*layerTbl)["fill_opacity"].value_or(0.0f);
+                    l.beamHeadSize = (*layerTbl)["beam_head_size"].value_or(0.0f);
+                    l.velocityModulation = (*layerTbl)["velocity_modulation"].value_or(0.0f);
                     
                     config.layers.push_back(l);
                 }

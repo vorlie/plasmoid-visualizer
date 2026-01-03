@@ -27,6 +27,9 @@ struct ConfigLayer {
     float bloom = 1.0f;
     bool showGrid = true;
     float traceWidth = 2.0f;
+    float fillOpacity = 0.0f;
+    float beamHeadSize = 0.0f;
+    float velocityModulation = 0.0f;
 };
 
 struct AppConfig {

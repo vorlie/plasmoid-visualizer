@@ -7,10 +7,13 @@ const char* vertexShaderSource = R"(
 #version 330 core
 layout (location = 0) in vec2 aPos;
 layout (location = 1) in vec2 aLocalPos; // Local pos within the bar [0,1]
+layout (location = 2) in float aIntensity;
 out vec2 LocalPos;
+out float vIntensity;
 void main() {
     gl_Position = vec4(aPos.x, aPos.y, 0.0, 1.0);
     LocalPos = aLocalPos;
+    vIntensity = aIntensity;
 }
 )";
 
@@ -18,6 +21,7 @@ const char* fragmentShaderSource = R"(
 #version 330 core
 out vec4 FragColor;
 in vec2 LocalPos;
+in float vIntensity;
 uniform vec4 uColor;
 uniform float uCornerRadius;
 uniform int uShape; // 0: Bars, 1: Lines, 2: Dots
@@ -28,18 +32,31 @@ float roundedBoxSDF(vec2 p, vec2 b, float r) {
 }
 
 void main() {
+    float alpha = 1.0;
     if (uShape == 0) { // Bars
         if (uCornerRadius > 0.001) {
-            // Map LocalPos [0,1] to [-1,1] for SDF
             vec2 p = LocalPos * 2.0 - 1.0;
             float dist = roundedBoxSDF(p, vec2(1.0), uCornerRadius);
-            if (dist > 0.0) discard;
+            float delta = fwidth(dist);
+            alpha = 1.0 - smoothstep(-delta, 0.0, dist);
         }
-    } else if (uShape == 2) { // Dots
-        vec2 p = LocalPos * 2.0 - 1.0;
-        if (length(p) > 1.0) discard;
+    } else if (uShape == 2) { // Dots (Quads)
+        float dist = length(LocalPos * 2.0 - 1.0);
+        float delta = fwidth(dist);
+        alpha = 1.0 - smoothstep(1.0 - delta, 1.0, dist);
+    } else if (uShape == 10) { // Circular Points (for Beam Head)
+        float dist = length(gl_PointCoord * 2.0 - 1.0);
+        float delta = fwidth(dist);
+        alpha = 1.0 - smoothstep(1.0 - delta, 1.0, dist);
+        if (uShape == 10) { // Beam Head soft falloff
+            alpha *= (1.0 - smoothstep(0.4, 1.0, dist));
+        }
+        FragColor = uColor * vIntensity * alpha;
+        return;
     }
-    FragColor = uColor;
+    
+    if (alpha <= 0.0) discard;
+    FragColor = uColor * vIntensity * alpha;
 }
 )";
 
@@ -76,6 +93,12 @@ Visualizer::Visualizer() {
     initQuad();
     glGenVertexArrays(1, &m_vao);
     glGenBuffers(1, &m_vbo);
+
+    glEnable(GL_LINE_SMOOTH);
+    glEnable(GL_POLYGON_SMOOTH);
+    glEnable(GL_MULTISAMPLE);
+    glHint(GL_LINE_SMOOTH_HINT, GL_NICEST);
+    glHint(GL_POLYGON_SMOOTH_HINT, GL_NICEST);
 }
 
 Visualizer::~Visualizer() {
@@ -277,6 +300,15 @@ void Visualizer::renderGrid() {
     glEnd();
 }
 
+static float catmullRom(float p0, float p1, float p2, float p3, float t) {
+    return 0.5f * (
+        (2.0f * p1) +
+        (-p0 + p2) * t +
+        (2.0f * p0 - 5.0f * p1 + 4.0f * p2 - p3) * t * t +
+        (-p0 + 3.0f * p1 - 3.0f * p2 + p3) * t * t * t
+    );
+}
+
 void Visualizer::render(const std::vector<float>& magnitudes) {
     if (magnitudes.empty()) return;
 
@@ -296,28 +328,28 @@ void Visualizer::render(const std::vector<float>& magnitudes) {
     auto addBar = [&](float x, float h, float width) {
         if (m_shape == VisualizerShape::Bars) {
             // First triangle
-            vertices.push_back(x);         vertices.push_back(-1.0f);     vertices.push_back(0.0f); vertices.push_back(0.0f);
-            vertices.push_back(x + width); vertices.push_back(-1.0f);     vertices.push_back(1.0f); vertices.push_back(0.0f);
-            vertices.push_back(x);         vertices.push_back(-1.0f + h); vertices.push_back(0.0f); vertices.push_back(1.0f);
+            vertices.push_back(x);         vertices.push_back(-1.0f);     vertices.push_back(0.0f); vertices.push_back(0.0f); vertices.push_back(1.0f);
+            vertices.push_back(x + width); vertices.push_back(-1.0f);     vertices.push_back(1.0f); vertices.push_back(0.0f); vertices.push_back(1.0f);
+            vertices.push_back(x);         vertices.push_back(-1.0f + h); vertices.push_back(0.0f); vertices.push_back(1.0f); vertices.push_back(1.0f);
             // Second triangle
-            vertices.push_back(x + width); vertices.push_back(-1.0f);     vertices.push_back(1.0f); vertices.push_back(0.0f);
-            vertices.push_back(x + width); vertices.push_back(-1.0f + h); vertices.push_back(1.0f); vertices.push_back(1.0f);
-            vertices.push_back(x);         vertices.push_back(-1.0f + h); vertices.push_back(0.0f); vertices.push_back(1.0f);
+            vertices.push_back(x + width); vertices.push_back(-1.0f);     vertices.push_back(1.0f); vertices.push_back(0.0f); vertices.push_back(1.0f);
+            vertices.push_back(x + width); vertices.push_back(-1.0f + h); vertices.push_back(1.0f); vertices.push_back(1.0f); vertices.push_back(1.0f);
+            vertices.push_back(x);         vertices.push_back(-1.0f + h); vertices.push_back(0.0f); vertices.push_back(1.0f); vertices.push_back(1.0f);
         } else if (m_shape == VisualizerShape::Lines) {
-            vertices.push_back(x + width/2); vertices.push_back(-1.0f);     vertices.push_back(0.5f); vertices.push_back(0.0f);
-            vertices.push_back(x + width/2); vertices.push_back(-1.0f + h); vertices.push_back(0.5f); vertices.push_back(1.0f);
+            vertices.push_back(x + width/2); vertices.push_back(-1.0f);     vertices.push_back(0.5f); vertices.push_back(0.0f); vertices.push_back(1.0f);
+            vertices.push_back(x + width/2); vertices.push_back(-1.0f + h); vertices.push_back(0.5f); vertices.push_back(1.0f); vertices.push_back(1.0f);
         } else if (m_shape == VisualizerShape::Dots) {
             float dotSize = width * 0.8f;
             float centerX = x + width/2;
             float centerY = -1.0f + h;
             // Square for the dot (fragment shader will clip it to circle)
-            vertices.push_back(centerX - dotSize/2); vertices.push_back(centerY - dotSize/2); vertices.push_back(0.0f); vertices.push_back(0.0f);
-            vertices.push_back(centerX + dotSize/2); vertices.push_back(centerY - dotSize/2); vertices.push_back(1.0f); vertices.push_back(0.0f);
-            vertices.push_back(centerX - dotSize/2); vertices.push_back(centerY + dotSize/2); vertices.push_back(0.0f); vertices.push_back(1.0f);
+            vertices.push_back(centerX - dotSize/2); vertices.push_back(centerY - dotSize/2); vertices.push_back(0.0f); vertices.push_back(0.0f); vertices.push_back(1.0f);
+            vertices.push_back(centerX + dotSize/2); vertices.push_back(centerY - dotSize/2); vertices.push_back(1.0f); vertices.push_back(0.0f); vertices.push_back(1.0f);
+            vertices.push_back(centerX - dotSize/2); vertices.push_back(centerY + dotSize/2); vertices.push_back(0.0f); vertices.push_back(1.0f); vertices.push_back(1.0f);
             
-            vertices.push_back(centerX + dotSize/2); vertices.push_back(centerY - dotSize/2); vertices.push_back(1.0f); vertices.push_back(0.0f);
-            vertices.push_back(centerX + dotSize/2); vertices.push_back(centerY + dotSize/2); vertices.push_back(1.0f); vertices.push_back(1.0f);
-            vertices.push_back(centerX - dotSize/2); vertices.push_back(centerY + dotSize/2); vertices.push_back(0.0f); vertices.push_back(1.0f);
+            vertices.push_back(centerX + dotSize/2); vertices.push_back(centerY - dotSize/2); vertices.push_back(1.0f); vertices.push_back(0.0f); vertices.push_back(1.0f);
+            vertices.push_back(centerX + dotSize/2); vertices.push_back(centerY + dotSize/2); vertices.push_back(1.0f); vertices.push_back(1.0f); vertices.push_back(1.0f);
+            vertices.push_back(centerX - dotSize/2); vertices.push_back(centerY + dotSize/2); vertices.push_back(0.0f); vertices.push_back(1.0f); vertices.push_back(1.0f);
         }
     };
 
@@ -326,46 +358,36 @@ void Visualizer::render(const std::vector<float>& magnitudes) {
         for (size_t i = 0; i < numBars; i += step) {
              float x = -1.0f + 2.0f * (float)i / (float)numBars;
              float y = magnitudes[i] * m_heightScale;
-             vertices.push_back(x); vertices.push_back(y); vertices.push_back(0.0f); vertices.push_back(0.0f);
+             vertices.push_back(x); vertices.push_back(y); vertices.push_back(0.0f); vertices.push_back(0.0f); vertices.push_back(1.0f);
         }
     } else if (m_shape == VisualizerShape::OscilloscopeXY) {
-        glEnable(GL_BLEND);
-        glBlendFunc(GL_SRC_ALPHA, GL_ONE);
-        // XY Mode with square aspect ratio and CRT glow
-        size_t numSamples = magnitudes.size() / 2;
-        size_t step = std::max((size_t)1, numSamples / 2048);
+        float prevX = 0, prevY = 0;
+        for (size_t i = 0; i < magnitudes.size() / 2; ++i) {
+            float x = magnitudes[i * 2] * xScale;
+            float y = magnitudes[i * 2 + 1] * yScale;
 
-        for (size_t i = 0; i < numSamples; i += step) {
-            float l = magnitudes[i * 2];
-            float r = magnitudes[i * 2 + 1];
-            
-            // Apply gain
-            float x = l * m_heightScale;
-            float y = r * m_heightScale;
+            // Apply rotation
+            float rx = x * cos(m_rotationAngle) - y * sin(m_rotationAngle);
+            float ry = x * sin(m_rotationAngle) + y * cos(m_rotationAngle);
+            x = rx; y = ry;
 
-            // Apply aspect correction for square
-            x *= xScale;
-            y *= yScale;
-
-            // Apply rotation (2D rotation matrix)
-            if (m_rotationAngle != 0.0f) {
-                float cosA = std::cos(m_rotationAngle);
-                float sinA = std::sin(m_rotationAngle);
-                float xRot = x * cosA - y * sinA;
-                float yRot = x * sinA + y * cosA;
-                x = xRot;
-                y = yRot;
-            }
-
-            // Apply flip transformations
             if (m_flipX) x = -x;
             if (m_flipY) y = -y;
 
-            // Clamp
             x = std::clamp(x, -1.0f, 1.0f);
             y = std::clamp(y, -1.0f, 1.0f);
 
-            vertices.push_back(x); vertices.push_back(y); vertices.push_back(0.0f); vertices.push_back(0.0f);
+            float intensity = 1.0f;
+            if (m_velocityModulation > 0.01f && i > 0) {
+                float dist = sqrt(pow(x - prevX, 2) + pow(y - prevY, 2));
+                intensity = 1.0f / (1.0f + dist * m_velocityModulation * 50.0f);
+            }
+
+            vertices.push_back(x); vertices.push_back(y); 
+            vertices.push_back(0.0f); vertices.push_back(0.0f); 
+            vertices.push_back(intensity);
+
+            prevX = x; prevY = y;
         }
     } else if (m_mirrored) {
         for (size_t i = 0; i < numBars; ++i) {
@@ -374,6 +396,38 @@ void Visualizer::render(const std::vector<float>& magnitudes) {
             addBar(-(float)i * effectiveBarWidth - effectiveBarWidth, h, effectiveBarWidth);
             // Right side
             addBar((float)i * effectiveBarWidth, h, effectiveBarWidth);
+        }
+    } else if (m_shape == VisualizerShape::Curve) {
+        // Spline-based smooth curve
+        int segmentsPerBar = 8;
+        for (size_t i = 0; i < numBars - 1; ++i) {
+            float p0 = std::min((i > 0 ? magnitudes[i - 1] : magnitudes[i]) * m_heightScale, 2.0f) - 1.0f;
+            float p1 = std::min(magnitudes[i] * m_heightScale, 2.0f) - 1.0f;
+            float p2 = std::min(magnitudes[i + 1] * m_heightScale, 2.0f) - 1.0f;
+            float p3 = std::min((i + 2 < numBars ? magnitudes[i + 2] : magnitudes[i + 1]) * m_heightScale, 2.0f) - 1.0f;
+
+            float xStart = -1.0f + i * effectiveBarWidth;
+            float xEnd = -1.0f + (i + 1) * effectiveBarWidth;
+
+            for (int s = 0; s < segmentsPerBar; ++s) {
+                float t1 = (float)s / segmentsPerBar;
+                float t2 = (float)(s + 1) / segmentsPerBar;
+
+                float h1 = catmullRom(p0, p1, p2, p3, t1);
+                float h2 = catmullRom(p0, p1, p2, p3, t2);
+
+                float x1 = xStart + (xEnd - xStart) * t1;
+                float x2 = xStart + (xEnd - xStart) * t2;
+
+                // Area fill triangles (lower opacity handled by uColor alpha)
+                vertices.push_back(x1); vertices.push_back(-1.0f); vertices.push_back(0.0f); vertices.push_back(0.0f); vertices.push_back(1.0f);
+                vertices.push_back(x2); vertices.push_back(-1.0f); vertices.push_back(0.0f); vertices.push_back(0.0f); vertices.push_back(1.0f);
+                vertices.push_back(x1); vertices.push_back(h1);    vertices.push_back(0.0f); vertices.push_back(0.0f); vertices.push_back(1.0f);
+
+                vertices.push_back(x2); vertices.push_back(-1.0f); vertices.push_back(0.0f); vertices.push_back(0.0f); vertices.push_back(1.0f);
+                vertices.push_back(x2); vertices.push_back(h2);    vertices.push_back(0.0f); vertices.push_back(0.0f); vertices.push_back(1.0f);
+                vertices.push_back(x1); vertices.push_back(h1);    vertices.push_back(0.0f); vertices.push_back(0.0f); vertices.push_back(1.0f);
+            }
         }
     } else {
         for (size_t i = 0; i < numBars; ++i) {
@@ -387,12 +441,13 @@ void Visualizer::render(const std::vector<float>& magnitudes) {
     glBindBuffer(GL_ARRAY_BUFFER, m_vbo);
     glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(float), vertices.data(), GL_STREAM_DRAW);
 
-    // Position attribute
-    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)0);
+    // stride is now 5 floats
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)0);
     glEnableVertexAttribArray(0);
-    // LocalPos attribute (unused for waveform but kept for compatibility layout)
-    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)(2 * sizeof(float)));
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)(2 * sizeof(float)));
     glEnableVertexAttribArray(1);
+    glVertexAttribPointer(2, 1, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)(4 * sizeof(float)));
+    glEnableVertexAttribArray(2);
 
     glUseProgram(m_shaderProgram);
     glUniform1f(glGetUniformLocation(m_shaderProgram, "uCornerRadius"), m_cornerRadius);
@@ -400,17 +455,17 @@ void Visualizer::render(const std::vector<float>& magnitudes) {
 
     if (m_shape == VisualizerShape::Lines) {
         glLineWidth(m_traceWidth);
-        glDrawArrays(GL_LINES, 0, (GLsizei)(vertices.size() / 4));
+        glDrawArrays(GL_LINES, 0, (GLsizei)(vertices.size() / 5));
     } else if (m_shape == VisualizerShape::Waveform) {
         glLineWidth(m_traceWidth);
-        glDrawArrays(GL_LINE_STRIP, 0, (GLsizei)(vertices.size() / 4));
+        glDrawArrays(GL_LINE_STRIP, 0, (GLsizei)(vertices.size() / 5));
     } else if (m_shape == VisualizerShape::OscilloscopeXY) {
         // CRT Glow Effect: Multi-pass with additive blending
         glUseProgram(m_shaderProgram);
         glBlendFunc(GL_SRC_ALPHA, GL_ONE); // Additive blending for "glow" overlap
         
         glLineWidth(m_traceWidth); // This line is added as per instruction
-        GLsizei vertexCount = (GLsizei)(vertices.size() / 4);
+        GLsizei vertexCount = (GLsizei)(vertices.size() / 5);
         GLint colorLoc = glGetUniformLocation(m_shaderProgram, "uColor");
         
         // Pass 1: Massive outer halo (very faint)
@@ -433,9 +488,56 @@ void Visualizer::render(const std::vector<float>& magnitudes) {
         glUniform4f(colorLoc, m_r, m_g, m_b, m_a * m_bloomIntensity);
         glDrawArrays(GL_LINE_STRIP, 0, vertexCount);
 
+        // Pass 5: Beam Head (Single point at the very end of the trace)
+        if (m_beamHeadSize > 0.01f && vertexCount > 0) {
+            glUniform1i(glGetUniformLocation(m_shaderProgram, "uShape"), 10); // Circular Point mode
+            
+            glPointSize(m_beamHeadSize);
+            glUniform4f(colorLoc, 1.0f, 1.0f, 1.0f, m_a * m_bloomIntensity); // White core for head
+            glDrawArrays(GL_POINTS, vertexCount - 1, 1);
+            
+            // Faint glowing halo around head
+            glPointSize(m_beamHeadSize * 3.5f);
+            glUniform4f(colorLoc, m_r, m_g, m_b, m_a * 0.6f * m_bloomIntensity);
+            glDrawArrays(GL_POINTS, vertexCount - 1, 1);
+
+            glUniform1i(glGetUniformLocation(m_shaderProgram, "uShape"), (int)m_shape); // Restore
+        }
+
         // Restore standard blending for other layers
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    } else if (m_shape == VisualizerShape::Curve) {
+        GLint colorLoc = glGetUniformLocation(m_shaderProgram, "uColor");
+        
+        // Pass 1: Draw filled area with lower opacity
+        glUniform4f(colorLoc, m_r, m_g, m_b, m_a * m_fillOpacity);
+        glDrawArrays(GL_TRIANGLES, 0, (GLsizei)(vertices.size() / 5));
+        
+        // Pass 2: Draw the smooth line on top (full opacity)
+        std::vector<float> lineVertices;
+        for (size_t i = 0; i < vertices.size(); i += 30) { // 6 vertices per segment, each with 5 floats = 30
+            // Point 1 on curve (Vertex 2 in triangle array)
+            lineVertices.push_back(vertices[i + 10]); 
+            lineVertices.push_back(vertices[i + 11]); 
+            lineVertices.push_back(0.0f); 
+            lineVertices.push_back(0.0f);
+            lineVertices.push_back(1.0f);
+
+            // Point 2 on curve (Vertex 4 in triangle array)
+            lineVertices.push_back(vertices[i + 20]); 
+            lineVertices.push_back(vertices[i + 21]); 
+            lineVertices.push_back(0.0f); 
+            lineVertices.push_back(0.0f);
+            lineVertices.push_back(1.0f);
+        }
+        
+        glBindBuffer(GL_ARRAY_BUFFER, m_vbo);
+        glBufferData(GL_ARRAY_BUFFER, lineVertices.size() * sizeof(float), lineVertices.data(), GL_STREAM_DRAW);
+        
+        glLineWidth(m_traceWidth);
+        glUniform4f(colorLoc, m_r, m_g, m_b, m_a);
+        glDrawArrays(GL_LINES, 0, (GLsizei)(lineVertices.size() / 5));
     } else {
-        glDrawArrays(GL_TRIANGLES, 0, (GLsizei)(vertices.size() / 4));
+        glDrawArrays(GL_TRIANGLES, 0, (GLsizei)(vertices.size() / 5));
     }
 }

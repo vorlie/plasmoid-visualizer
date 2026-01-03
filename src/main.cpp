@@ -38,10 +38,14 @@ struct VisualizerLayer {
     float bloom = 1.0f; // Bloom intensity for XY
     bool showGrid = true; // For Oscilloscope XY
     float traceWidth = 2.0f; // Thickness for all line-based shapes
+    float fillOpacity = 0.0f; // For Curve shape
+    float beamHeadSize = 0.0f; // For Oscilloscope XY
+    float velocityModulation = 0.0f; // For Oscilloscope XY
 };
 
 int main() {
     if (!glfwInit()) return -1;
+    glfwWindowHint(GLFW_SAMPLES, 4);
 
     GLFWwindow* window = glfwCreateWindow(800, 800, "Plasmoid Visualizer Standalone", NULL, NULL);
     if (!window) {
@@ -152,6 +156,9 @@ int main() {
             cl.bloom = l.bloom;
             cl.showGrid = l.showGrid;
             cl.traceWidth = l.traceWidth;
+            cl.fillOpacity = l.fillOpacity;
+            cl.beamHeadSize = l.beamHeadSize;
+            cl.velocityModulation = l.velocityModulation;
             config.layers.push_back(cl);
         }
         ConfigManager::save("", config); // empty means default path
@@ -195,6 +202,9 @@ int main() {
                     l.bloom = cl.bloom;
                     l.showGrid = cl.showGrid;
                     l.traceWidth = cl.traceWidth;
+                    l.fillOpacity = cl.fillOpacity;
+                    l.beamHeadSize = cl.beamHeadSize;
+                    l.velocityModulation = cl.velocityModulation;
                     layers.push_back(l);
                 }
             }
@@ -289,6 +299,9 @@ int main() {
                 visualizer.setBloomIntensity(layer.bloom);
                 visualizer.setGridEnabled(layer.showGrid);
                 visualizer.setTraceWidth(layer.traceWidth);
+                visualizer.setFillOpacity(layer.fillOpacity);
+                visualizer.setBeamHeadSize(layer.beamHeadSize);
+                visualizer.setVelocityModulation(layer.velocityModulation);
                 visualizer.render(renderData);
             }
 
@@ -342,6 +355,9 @@ int main() {
                 visualizer.setBloomIntensity(layer.bloom);
                 visualizer.setGridEnabled(layer.showGrid);
                 visualizer.setTraceWidth(layer.traceWidth);
+                visualizer.setFillOpacity(layer.fillOpacity);
+                visualizer.setBeamHeadSize(layer.beamHeadSize);
+                visualizer.setVelocityModulation(layer.velocityModulation);
                 visualizer.render(renderData);
             }
         } catch (const std::exception& e) {
@@ -792,10 +808,10 @@ int main() {
             ImGui::Text("Visuals");
             ImGui::Checkbox("Mirror Mode", &layer.mirrored);
             
-            const char* shapes[] = { "Bars", "Lines", "Dots", "Waveform", "Oscilloscope XY" };
-            int currentShape = (int)layer.shape;
-            if (ImGui::Combo("Shape", &currentShape, shapes, IM_ARRAYSIZE(shapes))) {
-                layer.shape = (VisualizerShape)currentShape;
+            const char* shapes[] = { "Bars", "Lines", "Dots", "Waveform", "Oscilloscope XY", "Curve" };
+            int shapeIdx = (int)layer.shape;
+            if (ImGui::Combo("Shape", &shapeIdx, shapes, IM_ARRAYSIZE(shapes))) {
+                layer.shape = (VisualizerShape)shapeIdx;
             }
             
             if (layer.shape == VisualizerShape::Bars) {
@@ -813,6 +829,13 @@ int main() {
                 ImGui::SliderFloat("Bloom Intensity", &layer.bloom, 0.0f, 5.0f);
                 ImGui::Separator();
                 ImGui::SliderFloat("Trace Thickness", &layer.traceWidth, 1.0f, 10.0f);
+                if (layer.shape == VisualizerShape::Curve) {
+                    ImGui::SliderFloat("Fill Opacity", &layer.fillOpacity, 0.0f, 1.0f);
+                }
+                if (layer.shape == VisualizerShape::OscilloscopeXY) {
+                    ImGui::SliderFloat("Beam Head Size", &layer.beamHeadSize, 0.0f, 30.0f);
+                    ImGui::SliderFloat("Velocity Brightness", &layer.velocityModulation, 0.0f, 2.0f);
+                }
             }
 
             ImGui::End();

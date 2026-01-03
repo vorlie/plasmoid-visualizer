@@ -10,7 +10,8 @@ enum class VisualizerShape {
     Lines,
     Dots,
     Waveform,
-    OscilloscopeXY
+    OscilloscopeXY,
+    Curve
 };
 
 class Visualizer {
@@ -32,6 +33,9 @@ public:
     void setBloomIntensity(float intensity); // For XY oscilloscope bloom
     void setGridEnabled(bool enabled) { m_showGrid = enabled; }
     void setTraceWidth(float width) { m_traceWidth = width; }
+    void setFillOpacity(float opacity) { m_fillOpacity = opacity; }
+    void setBeamHeadSize(float size) { m_beamHeadSize = size; }
+    void setVelocityModulation(float amount) { m_velocityModulation = amount; }
 
     // FBO Persistence
     void setupPersistence(int width, int height);
@@ -56,6 +60,9 @@ private:
     float m_bloomIntensity = 1.0f;
     bool m_showGrid = true;
     float m_traceWidth = 2.0f;
+    float m_fillOpacity = 0.0f; // 0.0 = no fill, 1.0 = solid fill
+    float m_beamHeadSize = 0.0f; // 0.0 = disabled
+    float m_velocityModulation = 0.0f; // 0.0 = disabled
 
     // FBO Persistence
     GLuint m_fbo = 0;
