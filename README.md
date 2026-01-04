@@ -4,10 +4,10 @@ A high-performance C++ Audio Visualizer suite featuring a powerful standalone Op
 
 ## Highlights 🚀
 - **Multi-Layer Engine**: Stack different visualizers (Bars, XY, Particles) with independent frequency analysis.
-- [x] Smooth spline curves with area fill
-- [x] Real-time audio analysis with logarithmic mapping
-- [x] Comprehensive Debug and System Monitoring
-- [x] Technical FAQ for architectural details
+- Smooth spline curves with area fill
+- Real-time audio analysis with logarithmic mapping
+- Comprehensive Debug and System Monitoring
+- Technical FAQ for architectural details
 
 ## 🗺️ Documentation
 - **[TECHNICAL_FAQ.md](TECHNICAL_FAQ.md)**: Deep dive into the architecture, optimizations, and visual science of the project.
