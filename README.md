@@ -2,6 +2,10 @@
 
 A high-performance C++ Audio Visualizer suite featuring a powerful standalone OpenGL editor and a native KDE Plasma 6 widget.
 
+[![Watch the Preview](https://img.shields.io/badge/Watch-Preview_Video-red?style=for-the-badge&logo=youtube)](https://youtu.be/zlsPb7s_U0g)
+
+
+
 ## Highlights 🚀
 - **Multi-Layer Engine**: Stack different visualizers (Bars, XY, Particles) with independent frequency analysis.
 - Smooth spline curves with area fill
