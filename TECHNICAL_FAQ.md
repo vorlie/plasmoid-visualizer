@@ -67,3 +67,15 @@ The "Render to Video" feature pipes raw frames directly into `ffmpeg`. You must 
 
 > [!WARNING]
 > This feature is currently an **unpolished experimental tool**. Because it captures and processes audio frames differently than the real-time engine, you may notice that the resulting video's visualizations are "off" or less reactive compared to the live playback. This is a known limitation of the current frame-stitching implementation.
+
+## 🐧 Platform Compatibility & Porting
+
+### Why is this project Linux-only?
+The visualizer is deeply integrated with the Linux ecosystem to achieve its high performance:
+- **Low-Latency Audio**: We rely on **PipeWire** (via `miniaudio`) for high-fidelity, low-latency audio capture. PipeWire provides a unified stream monitor that is easier to interface with than Windows' diverse WASAPI/DirectSound landscape.
+- **System Telemetry**: Our real-time CPU and RAM monitoring depends on the Linux `/proc` filesystem, and our accurate GPU VRAM reporting uses the kernel's **sysfs** (`/sys/class/drm/`). These interfaces provide high-resolution data with near-zero overhead.
+
+### Will there be a Windows or macOS port?
+While not currently a priority, it is technically possible:
+- **Graphics**: The OpenGL 3.3 code is cross-platform and would work on Windows/macOS with minimal changes.
+- **Audio/Stats**: A port would require a complete rewrite of the `SystemStats` class (using Win32 APIs or macOS `host_statistics`) and fine-tuning the `AudioEngine` to handle WASAPI or CoreAudio loopback recording cleanly.
