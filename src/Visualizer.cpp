@@ -2,91 +2,19 @@
 #include <iostream>
 #include <algorithm>
 #include <cmath>
+#include <fstream>
+#include <sstream>
 
-const char* vertexShaderSource = R"(
-#version 330 core
-layout (location = 0) in vec2 aPos;
-layout (location = 1) in vec2 aLocalPos; // Local pos within the bar [0,1]
-layout (location = 2) in float aIntensity;
-out vec2 LocalPos;
-out float vIntensity;
-void main() {
-    gl_Position = vec4(aPos.x, aPos.y, 0.0, 1.0);
-    LocalPos = aLocalPos;
-    vIntensity = aIntensity;
-}
-)";
-
-const char* fragmentShaderSource = R"(
-#version 330 core
-out vec4 FragColor;
-in vec2 LocalPos;
-in float vIntensity;
-uniform vec4 uColor;
-uniform float uCornerRadius;
-uniform int uShape; // 0: Bars, 1: Lines, 2: Dots
-
-float roundedBoxSDF(vec2 p, vec2 b, float r) {
-    vec2 q = abs(p) - b + r;
-    return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - r;
-}
-
-void main() {
-    float alpha = 1.0;
-    if (uShape == 0) { // Bars
-        if (uCornerRadius > 0.001) {
-            vec2 p = LocalPos * 2.0 - 1.0;
-            float dist = roundedBoxSDF(p, vec2(1.0), uCornerRadius);
-            float delta = fwidth(dist);
-            alpha = 1.0 - smoothstep(-delta, 0.0, dist);
-        }
-    } else if (uShape == 2) { // Dots (Quads)
-        float dist = length(LocalPos * 2.0 - 1.0);
-        float delta = fwidth(dist);
-        alpha = 1.0 - smoothstep(1.0 - delta, 1.0, dist);
-    } else if (uShape == 10) { // Circular Points (for Beam Head)
-        float dist = length(gl_PointCoord * 2.0 - 1.0);
-        float delta = fwidth(dist);
-        alpha = 1.0 - smoothstep(1.0 - delta, 1.0, dist);
-        if (uShape == 10) { // Beam Head soft falloff
-            alpha *= (1.0 - smoothstep(0.4, 1.0, dist));
-        }
-        FragColor = uColor * vIntensity * alpha;
-        return;
+static std::string loadShaderSource(const std::string& path) {
+    std::ifstream f(path);
+    if (!f.is_open()) {
+        std::cerr << "Failed to open shader file: " << path << std::endl;
+        return std::string();
     }
-    
-    if (alpha <= 0.0) discard;
-    FragColor = uColor * vIntensity * alpha;
+    std::stringstream ss;
+    ss << f.rdbuf();
+    return ss.str();
 }
-)";
-
-const char* quadVertexShaderSource = R"(
-#version 330 core
-layout (location = 0) in vec2 aPos;
-layout (location = 1) in vec2 aTexCoord;
-out vec2 TexCoord;
-void main() {
-    gl_Position = vec4(aPos, 0.0, 1.0);
-    TexCoord = aTexCoord;
-}
-)";
-
-const char* quadFragmentShaderSource = R"(
-#version 330 core
-out vec4 FragColor;
-in vec2 TexCoord;
-uniform sampler2D screenTexture;
-uniform bool uUseTexture;
-uniform vec4 uColor;
-void main() {
-    if (uUseTexture) {
-        vec4 texColor = texture(screenTexture, TexCoord);
-        FragColor = vec4(texColor.rgb, 1.0);
-    } else {
-        FragColor = uColor;
-    }
-}
-)";
 
 Visualizer::Visualizer() {
     initShaders();
@@ -108,6 +36,13 @@ Visualizer::~Visualizer() {
 }
 
 void Visualizer::initShaders() {
+    // Load shader sources from files
+    std::string vertSrc = loadShaderSource("shaders/visualizer.vert");
+    std::string fragSrc = loadShaderSource("shaders/visualizer.frag");
+
+    const char* vertexShaderSource = vertSrc.c_str();
+    const char* fragmentShaderSource = fragSrc.c_str();
+
     GLuint vertexShader = glCreateShader(GL_VERTEX_SHADER);
     glShaderSource(vertexShader, 1, &vertexShaderSource, NULL);
     glCompileShader(vertexShader);
@@ -125,18 +60,23 @@ void Visualizer::initShaders() {
     glDeleteShader(fragmentShader);
 
     // Quad Shader
-    GLuint qvs = glCreateShader(GL_VERTEX_SHADER);
-    glShaderSource(qvs, 1, &quadVertexShaderSource, NULL);
-    glCompileShader(qvs);
-    GLuint qfs = glCreateShader(GL_FRAGMENT_SHADER);
-    glShaderSource(qfs, 1, &quadFragmentShaderSource, NULL);
-    glCompileShader(qfs);
+    std::string qvsSrc = loadShaderSource("shaders/quad.vert");
+    std::string qfsSrc = loadShaderSource("shaders/quad.frag");
+    const char* qvs = qvsSrc.c_str();
+    const char* qfs = qfsSrc.c_str();
+
+    GLuint qvsId = glCreateShader(GL_VERTEX_SHADER);
+    glShaderSource(qvsId, 1, &qvs, NULL);
+    glCompileShader(qvsId);
+    GLuint qfsId = glCreateShader(GL_FRAGMENT_SHADER);
+    glShaderSource(qfsId, 1, &qfs, NULL);
+    glCompileShader(qfsId);
     m_quadShaderProgram = glCreateProgram();
-    glAttachShader(m_quadShaderProgram, qvs);
-    glAttachShader(m_quadShaderProgram, qfs);
+    glAttachShader(m_quadShaderProgram, qvsId);
+    glAttachShader(m_quadShaderProgram, qfsId);
     glLinkProgram(m_quadShaderProgram);
-    glDeleteShader(qvs);
-    glDeleteShader(qfs);
+    glDeleteShader(qvsId);
+    glDeleteShader(qfsId);
 }
 
 void Visualizer::setHeightScale(float scale) {
@@ -464,29 +404,40 @@ void Visualizer::render(const std::vector<float>& magnitudes) {
         glUseProgram(m_shaderProgram);
         glBlendFunc(GL_SRC_ALPHA, GL_ONE); // Additive blending for "glow" overlap
         
-        glLineWidth(m_traceWidth); // This line is added as per instruction
+        glLineWidth(m_traceWidth);
         GLsizei vertexCount = (GLsizei)(vertices.size() / 5);
         GLint colorLoc = glGetUniformLocation(m_shaderProgram, "uColor");
         
+        // Helper lambda to draw a glow pass and round caps at vertices to avoid corner cuts
+        auto drawGlowPass = [&](float lineW, float alphaMul) {
+            glLineWidth(lineW);
+            glUniform4f(colorLoc, m_r, m_g, m_b, m_a * alphaMul * m_bloomIntensity);
+            glDrawArrays(GL_LINE_STRIP, 0, vertexCount);
+
+            // Draw round caps at each vertex to smooth joins where thick lines can produce miter/bevel artifacts
+            GLint shapeLoc = glGetUniformLocation(m_shaderProgram, "uShape");
+            glUniform1i(shapeLoc, 10);
+            glPointSize(lineW);
+            glDrawArrays(GL_POINTS, 0, vertexCount);
+            // Restore shape uniform
+            glUniform1i(shapeLoc, (int)m_shape);
+        };
+        
         // Pass 1: Massive outer halo (very faint)
-        glLineWidth(20.0f);
-        glUniform4f(colorLoc, m_r, m_g, m_b, m_a * 0.05f * m_bloomIntensity);
-        glDrawArrays(GL_LINE_STRIP, 0, vertexCount);
+        drawGlowPass(20.0f, 0.05f);
 
         // Pass 2: Wide glow halo
-        glLineWidth(10.0f);
-        glUniform4f(colorLoc, m_r, m_g, m_b, m_a * 0.15f * m_bloomIntensity);
-        glDrawArrays(GL_LINE_STRIP, 0, vertexCount);
+        drawGlowPass(10.0f, 0.15f);
         
         // Pass 3: Medium glow
-        glLineWidth(4.0f);
-        glUniform4f(colorLoc, m_r, m_g, m_b, m_a * 0.4f * m_bloomIntensity);
-        glDrawArrays(GL_LINE_STRIP, 0, vertexCount);
+        drawGlowPass(4.0f, 0.4f);
         
         // Pass 4: Core line (bright)
         glLineWidth(2.0f);
         glUniform4f(colorLoc, m_r, m_g, m_b, m_a * m_bloomIntensity);
         glDrawArrays(GL_LINE_STRIP, 0, vertexCount);
+        glPointSize(2.0f);
+        glDrawArrays(GL_POINTS, 0, vertexCount);
 
         // Pass 5: Beam Head (Single point at the very end of the trace)
         if (m_beamHeadSize > 0.01f && vertexCount > 0) {

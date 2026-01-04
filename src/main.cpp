@@ -66,6 +66,28 @@ int main() {
     ImGui_ImplGlfw_InitForOpenGL(window, true);
     ImGui_ImplOpenGL3_Init("#version 330");
 
+    // Fullscreen toggle support
+    bool g_isFullscreen = false;
+    int g_windowedPosX = 0, g_windowedPosY = 0, g_windowedWidth = 800, g_windowedHeight = 800;
+    bool f11Prev = false;
+    auto toggleFullscreen = [&](GLFWwindow* win) {
+        if (!g_isFullscreen) {
+            glfwGetWindowPos(win, &g_windowedPosX, &g_windowedPosY);
+            glfwGetWindowSize(win, &g_windowedWidth, &g_windowedHeight);
+            GLFWmonitor* monitor = glfwGetPrimaryMonitor();
+            if (monitor) {
+                const GLFWvidmode* mode = glfwGetVideoMode(monitor);
+                if (mode) {
+                    glfwSetWindowMonitor(win, monitor, 0, 0, mode->width, mode->height, mode->refreshRate);
+                    g_isFullscreen = true;
+                }
+            }
+        } else {
+            glfwSetWindowMonitor(win, NULL, g_windowedPosX, g_windowedPosY, g_windowedWidth, g_windowedHeight, 0);
+            g_isFullscreen = false;
+        }
+    };
+
     AudioEngine audioEngine;
     AnalysisEngine analysisEngine(8192);
     Visualizer visualizer;
@@ -224,6 +246,17 @@ int main() {
 
     while (!glfwWindowShouldClose(window)) {
         glfwPollEvents();
+
+        // Handle F11 fullscreen toggle (edge-triggered)
+        bool f11 = (glfwGetKey(window, GLFW_KEY_F11) == GLFW_PRESS);
+        if (f11 && !f11Prev) {
+            toggleFullscreen(window);
+            // Ensure GLFW updates its internal framebuffer size before next render
+            int dw, dh;
+            glfwGetFramebufferSize(window, &dw, &dh);
+        }
+        f11Prev = f11;
+
         float deltaTime = 1.0f / ImGui::GetIO().Framerate;
 
         std::vector<float> audioBuffer;
@@ -383,6 +416,12 @@ int main() {
                 if (ImGui::MenuItem("Exit")) glfwSetWindowShouldClose(window, true);
                 ImGui::EndMenu();
             }
+
+            if (ImGui::BeginMenu("View")) {
+                if (ImGui::MenuItem("Toggle Fullscreen\tF11")) toggleFullscreen(window);
+                ImGui::EndMenu();
+            }
+
             if (ImGui::BeginMenu("Windows")) {
                 ImGui::MenuItem("Audio Settings", NULL, &showAudioSettings);
                 ImGui::MenuItem("Layer Manager", NULL, &showLayerManager);

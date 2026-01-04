@@ -2,32 +2,20 @@
 #include <iostream>
 #include <algorithm>
 #include <random>
+#include <fstream>
+#include <sstream>
 
-const char* particleVertexShader = R"(
-#version 330 core
-layout (location = 0) in vec2 aPos;
-layout (location = 1) in vec4 aColor;
-layout (location = 2) in float aSize;
-
-out vec4 ParticleColor;
-
-void main() {
-    gl_Position = vec4(aPos.x, aPos.y, 0.0, 1.0);
-    gl_PointSize = 10.0; // Hardcoded for debug
-    ParticleColor = aColor;
+static std::string loadShaderSource(const std::string& path) {
+    std::ifstream f(path);
+    if (!f.is_open()) {
+        std::cerr << "Failed to open shader file: " << path << std::endl;
+        return std::string();
+    }
+    std::stringstream ss;
+    ss << f.rdbuf();
+    return ss.str();
 }
-)";
 
-const char* particleFragmentShader = R"(
-#version 330 core
-out vec4 FragColor;
-in vec4 ParticleColor;
-
-void main() {
-    // Debug: Solid red square
-    FragColor = vec4(1.0, 0.0, 0.0, 1.0); 
-}
-)";
 
 ParticleSystem::ParticleSystem() {
     init();
@@ -51,9 +39,13 @@ void ParticleSystem::init() {
 void ParticleSystem::initShaders() {
     GLint success;
     char infoLog[512];
+    std::string vertSrc = loadShaderSource("shaders/particles.vert");
+    std::string fragSrc = loadShaderSource("shaders/particles.frag");
+    const char* particleVertexShaderSource = vertSrc.c_str();
+    const char* particleFragmentShaderSource = fragSrc.c_str();
 
     GLuint vertexShader = glCreateShader(GL_VERTEX_SHADER);
-    glShaderSource(vertexShader, 1, &particleVertexShader, NULL);
+    glShaderSource(vertexShader, 1, &particleVertexShaderSource, NULL);
     glCompileShader(vertexShader);
     glGetShaderiv(vertexShader, GL_COMPILE_STATUS, &success);
     if (!success) {
@@ -62,7 +54,7 @@ void ParticleSystem::initShaders() {
     }
 
     GLuint fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
-    glShaderSource(fragmentShader, 1, &particleFragmentShader, NULL);
+    glShaderSource(fragmentShader, 1, &particleFragmentShaderSource, NULL);
     glCompileShader(fragmentShader);
     glGetShaderiv(fragmentShader, GL_COMPILE_STATUS, &success);
     if (!success) {
