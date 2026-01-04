@@ -456,6 +456,11 @@ float AudioEngine::getPosition() const {
     ma_decoder_get_cursor_in_pcm_frames((ma_decoder*)&m_decoder, &cursor);
     return (float)cursor / m_decoder.outputSampleRate;
 }
+void AudioEngine::seekTo(float seconds) {
+    if (!m_isDecoderInitialized) return;
+    ma_uint64 frameIndex = (ma_uint64)(seconds * m_decoder.outputSampleRate);
+    ma_decoder_seek_to_pcm_frame(&m_decoder, frameIndex);
+}
 
 float AudioEngine::getDuration() const {
     if (!m_isDecoderInitialized) return 0.0f;

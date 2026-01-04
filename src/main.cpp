@@ -10,6 +10,7 @@
 #include "ParticleSystem.hpp"
 #include "OscMusicEditor.hpp"
 #include "ConfigManager.hpp"
+#include "SystemStats.hpp"
 #include <filesystem>
 #include <algorithm>
 
@@ -70,6 +71,7 @@ int main() {
     Visualizer visualizer;
     ParticleSystem particleSystem;
     OscMusicEditor oscMusicEditor;
+    SystemStats systemStats;
 
     std::vector<VisualizerLayer> layers;
     // Add default layer
@@ -498,8 +500,21 @@ int main() {
 
                     if (ImGui::Button("Play")) audioEngine.play();
                     ImGui::SameLine();
+                    if (ImGui::Button("Pause")) audioEngine.pause();
+                    ImGui::SameLine();
                     if (ImGui::Button("Stop")) audioEngine.stop();
 
+                    // Progress Slider
+                    float currentPos = audioEngine.getPosition();
+                    float duration = audioEngine.getDuration();
+                    if (duration > 0) {
+                        float progress = currentPos;
+                        char formatBuf[64];
+                        snprintf(formatBuf, sizeof(formatBuf), "%%.1f / %.1f s", duration);
+                        if (ImGui::SliderFloat("Progress", &progress, 0.0f, duration, formatBuf)) {
+                            audioEngine.seekTo(progress);
+                        }
+                    }
                     ImGui::Separator();
                     static bool showRenderDialog = false;
                     if (ImGui::Button("Render to Video")) {
@@ -897,12 +912,32 @@ int main() {
 
         // Debug Info Window
         if (showDebugInfo) {
+            systemStats.update(io.DeltaTime);
             ImGui::Begin("Debug Info", &showDebugInfo);
             ImGui::Text("FPS: %.1f", io.Framerate);
-            ImGui::Text("Buffer Size: %zu", audioBuffer.size());
+            ImGui::Text("Active Layers: %zu", layers.size());
+            ImGui::Separator();
+            ImGui::Text("System Resources:");
+            ImGui::Text("CPU (Global):  %.1f%%", systemStats.getGlobalCpuUsage());
+            ImGui::Text("CPU (Process): %.1f%%", systemStats.getProcessCpuUsage());
+            ImGui::Text("RAM Usage:     %.1f MB", systemStats.getRamUsageMB());
+            ImGui::Text("GPU Info:      %s", systemStats.getGpuInfo().c_str());
+
+            ImGui::Separator();
+            ImGui::Text("Audio Engine Stats:");
             ImGui::Text("Is Playing: %s", audioEngine.isPlaying() ? "Yes" : "No");
+            ImGui::Text("Sample Rate: %u Hz", audioEngine.getSampleRate());
             ImGui::Text("Channels: %d", (int)audioEngine.getChannels());
-            ImGui::Text("Position: %.2f s", audioEngine.getPosition());
+            ImGui::Text("Position: %.2f / %.2f s", audioEngine.getPosition(), audioEngine.getDuration());
+            
+            ma_uint64 totalFrames = (ma_uint64)(audioEngine.getDuration() * audioEngine.getSampleRate());
+            ma_uint64 currentFrame = (ma_uint64)(audioEngine.getPosition() * audioEngine.getSampleRate());
+            ImGui::Text("Frames: %llu / %llu", (unsigned long long)currentFrame, (unsigned long long)totalFrames);
+
+            if (strlen(filePath) > 0) {
+                ImGui::Separator();
+                ImGui::Text("Current File: %s", filePath);
+            }
             ImGui::End();
         }
         if (showGlobalSettings) {

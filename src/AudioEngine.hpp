@@ -17,6 +17,7 @@ public:
     void pause();
     void stop();
     void stopCapture();
+    void seekTo(float seconds);
 
     bool isPlaying() const { return m_isPlaying; }
     bool isCaptureMode() const { return m_isCaptureMode; }
