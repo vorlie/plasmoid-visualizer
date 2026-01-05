@@ -329,6 +329,51 @@ void Visualizer::render(const std::vector<float>& magnitudes) {
 
             prevX = x; prevY = y;
         }
+    } else if (m_shape == VisualizerShape::OscilloscopeXY_Clean) {
+        float prevX = 0, prevY = 0;
+        size_t numPoints = magnitudes.size() / 2;
+        int segmentsPerPoint = 4; // Smoothness factor
+        
+        // Helper to get transformed XY at index
+        auto getXY = [&](size_t idx, float& x, float& y) {
+            x = magnitudes[idx * 2] * xScale;
+            y = magnitudes[idx * 2 + 1] * yScale;
+            // Apply rotation
+            float rx = x * cos(m_rotationAngle) - y * sin(m_rotationAngle);
+            float ry = x * sin(m_rotationAngle) + y * cos(m_rotationAngle);
+            x = rx; y = ry;
+            if (m_flipX) x = -x;
+            if (m_flipY) y = -y;
+            x = std::clamp(x, -1.0f, 1.0f);
+            y = std::clamp(y, -1.0f, 1.0f);
+        };
+
+        for (size_t i = 0; i < numPoints - 1; ++i) {
+             float p0x, p0y, p1x, p1y, p2x, p2y, p3x, p3y;
+             getXY(i > 0 ? i - 1 : 0, p0x, p0y);
+             getXY(i, p1x, p1y);
+             getXY(i + 1, p2x, p2y);
+             getXY(i + 2 < numPoints ? i + 2 : i + 1, p3x, p3y);
+
+             for (int s = 0; s < segmentsPerPoint; ++s) {
+                 float t = (float)s / (float)segmentsPerPoint;
+                 float x = catmullRom(p0x, p1x, p2x, p3x, t);
+                 float y = catmullRom(p0y, p1y, p2y, p3y, t);
+                 
+                 float intensity = 1.0f;
+                 if (m_velocityModulation > 0.01f && (i > 0 || s > 0)) {
+                     float dist = sqrt(pow(x - prevX, 2) + pow(y - prevY, 2));
+                     // Adjust sensitivity since steps are smaller
+                     intensity = 1.0f / (1.0f + dist * m_velocityModulation * 50.0f * segmentsPerPoint); 
+                 }
+                 
+                 vertices.push_back(x); vertices.push_back(y); 
+                 vertices.push_back(0.0f); vertices.push_back(0.0f); 
+                 vertices.push_back(intensity);
+                 
+                 prevX = x; prevY = y;
+             }
+        }
     } else if (m_mirrored) {
         for (size_t i = 0; i < numBars; ++i) {
             float h = std::min(magnitudes[i] * m_heightScale, 2.0f);
@@ -399,7 +444,7 @@ void Visualizer::render(const std::vector<float>& magnitudes) {
     } else if (m_shape == VisualizerShape::Waveform) {
         glLineWidth(m_traceWidth);
         glDrawArrays(GL_LINE_STRIP, 0, (GLsizei)(vertices.size() / 5));
-    } else if (m_shape == VisualizerShape::OscilloscopeXY) {
+    } else if (m_shape == VisualizerShape::OscilloscopeXY || m_shape == VisualizerShape::OscilloscopeXY_Clean) {
         // CRT Glow Effect: Multi-pass with additive blending
         glUseProgram(m_shaderProgram);
         glBlendFunc(GL_SRC_ALPHA, GL_ONE); // Additive blending for "glow" overlap

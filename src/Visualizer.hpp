@@ -11,7 +11,8 @@ enum class VisualizerShape {
     Dots,
     Waveform,
     OscilloscopeXY,
-    Curve
+    Curve,
+    OscilloscopeXY_Clean
 };
 
 class Visualizer {

@@ -281,7 +281,7 @@ int main() {
 
             bool usePersistence = false;
             for (auto& l : layers) {
-                if (l.visible && l.shape == VisualizerShape::OscilloscopeXY) {
+                if (l.visible && (l.shape == VisualizerShape::OscilloscopeXY || l.shape == VisualizerShape::OscilloscopeXY_Clean)) {
                     usePersistence = true; break;
                 }
             }
@@ -301,7 +301,7 @@ int main() {
             std::vector<VisualizerLayer*> directLayers;
             for (auto& l : layers) {
                 if (!l.visible) continue;
-                if (l.shape == VisualizerShape::OscilloscopeXY) persistentLayers.push_back(&l);
+                if (l.shape == VisualizerShape::OscilloscopeXY || l.shape == VisualizerShape::OscilloscopeXY_Clean) persistentLayers.push_back(&l);
                 else directLayers.push_back(&l);
             }
 
@@ -659,7 +659,7 @@ int main() {
                                         std::vector<float> renderData;
                                         if (layer.shape == VisualizerShape::Waveform) {
                                             renderData.assign(frameAudio.begin(), frameAudio.begin() + std::min((size_t)2048, frameAudio.size()));
-                                        } else if (layer.shape == VisualizerShape::OscilloscopeXY) {
+                                        } else if (layer.shape == VisualizerShape::OscilloscopeXY || layer.shape == VisualizerShape::OscilloscopeXY_Clean) {
                                             renderData = frameAudio; // frameAudio is already stereo
                                         } else {
                                             renderData = analysisEngine.computeLayerMagnitudes(layer.config, layer.prevMagnitudes);
@@ -862,7 +862,7 @@ int main() {
             ImGui::Text("Visuals");
             ImGui::Checkbox("Mirror Mode", &layer.mirrored);
             
-            const char* shapes[] = { "Bars", "Lines", "Dots", "Waveform", "Oscilloscope XY", "Curve" };
+            const char* shapes[] = { "Bars", "Lines", "Dots", "Waveform", "Oscilloscope XY", "Curve", "Oscilloscope Clean" };
             int shapeIdx = (int)layer.shape;
             if (ImGui::Combo("Shape", &shapeIdx, shapes, IM_ARRAYSIZE(shapes))) {
                 layer.shape = (VisualizerShape)shapeIdx;
@@ -872,11 +872,11 @@ int main() {
                 ImGui::SliderFloat("Corner Radius", &layer.cornerRadius, 0.0f, 1.0f);
             }
             
-            if (layer.shape == VisualizerShape::Waveform || layer.shape == VisualizerShape::OscilloscopeXY) {
+            if (layer.shape == VisualizerShape::Waveform || layer.shape == VisualizerShape::OscilloscopeXY || layer.shape == VisualizerShape::OscilloscopeXY_Clean) {
                  ImGui::SliderFloat("Time Scale", &layer.timeScale, 0.2f, 2.0f);
             }
             
-            if (layer.shape == VisualizerShape::OscilloscopeXY) {
+            if (layer.shape == VisualizerShape::OscilloscopeXY || layer.shape == VisualizerShape::OscilloscopeXY_Clean) {
                 ImGui::SliderFloat("Rotation", &layer.rotation, 0.0f, 360.0f);
                 ImGui::Checkbox("Flip Horizontal", &layer.flipX);
                 ImGui::Checkbox("Flip Vertical", &layer.flipY);
@@ -886,7 +886,7 @@ int main() {
                 if (layer.shape == VisualizerShape::Curve) {
                     ImGui::SliderFloat("Fill Opacity", &layer.fillOpacity, 0.0f, 1.0f);
                 }
-                if (layer.shape == VisualizerShape::OscilloscopeXY) {
+                if (layer.shape == VisualizerShape::OscilloscopeXY || layer.shape == VisualizerShape::OscilloscopeXY_Clean) {
                     ImGui::SliderFloat("Beam Head Size", &layer.beamHeadSize, 0.0f, 30.0f);
                     ImGui::SliderFloat("Velocity Brightness", &layer.velocityModulation, 0.0f, 2.0f);
                 }
