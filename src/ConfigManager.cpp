@@ -38,6 +38,9 @@ bool ConfigManager::save(const std::string& filename, const AppConfig& config) {
             {"min_freq", layer.minFreq},
             {"max_freq", layer.maxFreq},
             {"num_bars", (int64_t)layer.numBars},
+            {"attack", layer.attack},
+            {"smoothing", layer.smoothing},
+            {"spectrum_power", layer.spectrumPower},
             {"shape", layer.shape},
             {"color", toml::array{layer.color[0], layer.color[1], layer.color[2], layer.color[3]}},
             {"bar_height", layer.barHeight},
@@ -53,7 +56,10 @@ bool ConfigManager::save(const std::string& filename, const AppConfig& config) {
             {"trace_width", layer.traceWidth},
             {"fill_opacity", layer.fillOpacity},
             {"beam_head_size", layer.beamHeadSize},
-            {"velocity_modulation", layer.velocityModulation}
+            {"beam_head_size", layer.beamHeadSize},
+            {"velocity_modulation", layer.velocityModulation},
+            {"audio_channel", layer.audioChannel},
+            {"bar_anchor", layer.barAnchor}
         });
     }
     tbl.insert_or_assign("layers", layersArray);
@@ -99,6 +105,9 @@ bool ConfigManager::load(const std::string& filename, AppConfig& config) {
                     l.minFreq = (*layerTbl)["min_freq"].value_or(20.0f);
                     l.maxFreq = (*layerTbl)["max_freq"].value_or(20000.0f);
                     l.numBars = (size_t)(*layerTbl)["num_bars"].value_or(256);
+                    l.attack = (*layerTbl)["attack"].value_or(0.8f);
+                    l.smoothing = (*layerTbl)["smoothing"].value_or(1);
+                    l.spectrumPower = (*layerTbl)["spectrum_power"].value_or(1.0f);
                     l.shape = (*layerTbl)["shape"].value_or(0);
                     
                     if (auto lColor = (*layerTbl)["color"].as_array()) {
@@ -120,7 +129,10 @@ bool ConfigManager::load(const std::string& filename, AppConfig& config) {
                     l.traceWidth = (*layerTbl)["trace_width"].value_or(2.0f);
                     l.fillOpacity = (*layerTbl)["fill_opacity"].value_or(0.0f);
                     l.beamHeadSize = (*layerTbl)["beam_head_size"].value_or(0.0f);
+                    l.beamHeadSize = (*layerTbl)["beam_head_size"].value_or(0.0f);
                     l.velocityModulation = (*layerTbl)["velocity_modulation"].value_or(0.0f);
+                    l.audioChannel = (*layerTbl)["audio_channel"].value_or(0);
+                    l.barAnchor = (*layerTbl)["bar_anchor"].value_or(0);
                     
                     config.layers.push_back(l);
                 }

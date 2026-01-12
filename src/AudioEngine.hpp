@@ -29,6 +29,9 @@ public:
     // Get current audio buffer for analysis (Mono)
     void getBuffer(std::vector<float>& buffer, size_t size);
     
+    // Get specific channel buffer (0=Mixed, 1=Left, 2=Right)
+    void getChannelBuffer(std::vector<float>& buffer, size_t size, int channel);
+    
     // Get current stereo buffer for Oscilloscope XY (Interleaved L/R)
     void getStereoBuffer(std::vector<float>& buffer, size_t frames);
     

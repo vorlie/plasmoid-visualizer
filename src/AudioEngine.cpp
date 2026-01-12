@@ -490,6 +490,36 @@ void AudioEngine::getBuffer(std::vector<float>& buffer, size_t size) {
     }
 }
 
+void AudioEngine::getChannelBuffer(std::vector<float>& buffer, size_t size, int channel) {
+    std::lock_guard<std::mutex> lock(m_bufferMutex);
+    
+    // channel: 0 = Mixed, 1 = Left, 2 = Right
+    if (channel == 0) {
+        // Mixed - use mono buffer
+        if (m_circularBuffer.empty()) return;
+        buffer.resize(size);
+        size_t readPos = (m_writePos + m_circularBuffer.size() - size) % m_circularBuffer.size();
+        for (size_t i = 0; i < size; ++i) {
+            buffer[i] = m_circularBuffer[(readPos + i) % m_circularBuffer.size()];
+        }
+    } else {
+        // Left (1) or Right (2) - extract from stereo buffer
+        if (m_stereoBuffer.empty()) return;
+        buffer.resize(size);
+        
+        // Calculate read position in stereo buffer (interleaved samples)
+        size_t stereoSamples = size * 2;
+        size_t bufferSize = m_stereoBuffer.size();
+        size_t readPos = (m_stereoWritePos + bufferSize - stereoSamples) % bufferSize;
+        
+        // Extract channel: Left = even indices (0,2,4...), Right = odd indices (1,3,5...)
+        int offset = (channel == 1) ? 0 : 1;
+        for (size_t i = 0; i < size; ++i) {
+            buffer[i] = m_stereoBuffer[(readPos + i * 2 + offset) % bufferSize];
+        }
+    }
+}
+
 std::vector<AudioEngine::DeviceInfo> AudioEngine::getAvailableDevices(bool capture) {
     std::vector<DeviceInfo> devices;
     ma_context context;

@@ -42,6 +42,8 @@ struct VisualizerLayer {
     float fillOpacity = 0.0f; // For Curve shape
     float beamHeadSize = 0.0f; // For Oscilloscope XY
     float velocityModulation = 0.0f; // For Oscilloscope XY
+    AudioChannel channel = AudioChannel::Mixed; // Audio channel selection
+    BarAnchor barAnchor = BarAnchor::Bottom; // Bar positioning
 };
 
 int main() {
@@ -183,6 +185,13 @@ int main() {
             cl.fillOpacity = l.fillOpacity;
             cl.beamHeadSize = l.beamHeadSize;
             cl.velocityModulation = l.velocityModulation;
+            cl.beamHeadSize = l.beamHeadSize;
+            cl.velocityModulation = l.velocityModulation;
+            cl.attack = l.config.attack;
+            cl.smoothing = l.config.smoothing;
+            cl.spectrumPower = l.config.spectrumPower;
+            cl.audioChannel = (int)l.channel;
+            cl.barAnchor = (int)l.barAnchor;
             config.layers.push_back(cl);
         }
         ConfigManager::save("", config); // empty means default path
@@ -229,6 +238,13 @@ int main() {
                     l.fillOpacity = cl.fillOpacity;
                     l.beamHeadSize = cl.beamHeadSize;
                     l.velocityModulation = cl.velocityModulation;
+                    l.beamHeadSize = cl.beamHeadSize;
+                    l.velocityModulation = cl.velocityModulation;
+                    l.config.attack = cl.attack;
+                    l.config.smoothing = cl.smoothing;
+                    l.config.spectrumPower = cl.spectrumPower;
+                    l.channel = (AudioChannel)cl.audioChannel;
+                    l.barAnchor = (BarAnchor)cl.barAnchor;
                     layers.push_back(l);
                 }
             }
@@ -309,20 +325,18 @@ int main() {
             for (auto* layerPtr : persistentLayers) {
                 auto& layer = *layerPtr;
                 std::vector<float> renderData;
-                // ... (data preparation same as before) ...
+                // Oscilloscope modes always use stereo buffer (works for files, test tone, and OscMusic)
                 size_t requestFrames = (size_t)(2048 * layer.timeScale);
-                if (audioEngine.getChannels() == 2) {
-                    std::vector<float> stereo;
-                    audioEngine.getStereoBuffer(stereo, 8192);
-                    size_t triggerOffset = 0;
-                    for (size_t i = 0; i < 512 && (i + 1) * 2 < stereo.size(); ++i) {
-                        if (stereo[i * 2] < 0.0f && stereo[(i + 1) * 2] >= 0.05f) {
-                            triggerOffset = i * 2; break;
-                        }
+                std::vector<float> stereo;
+                audioEngine.getStereoBuffer(stereo, 8192);
+                size_t triggerOffset = 0;
+                for (size_t i = 0; i < 512 && (i + 1) * 2 < stereo.size(); ++i) {
+                    if (stereo[i * 2] < 0.0f && stereo[(i + 1) * 2] >= 0.05f) {
+                        triggerOffset = i * 2; break;
                     }
-                    size_t copySize = std::min(stereo.size() - triggerOffset, requestFrames * 2);
-                    renderData.assign(stereo.begin() + triggerOffset, stereo.begin() + triggerOffset + copySize);
                 }
+                size_t copySize = std::min(stereo.size() - triggerOffset, requestFrames * 2);
+                renderData.assign(stereo.begin() + triggerOffset, stereo.begin() + triggerOffset + copySize);
 
                 visualizer.setColor(layer.color[0], layer.color[1], layer.color[2], layer.color[3]);
                 visualizer.setHeightScale(layer.barHeight);
@@ -337,6 +351,7 @@ int main() {
                 visualizer.setFillOpacity(layer.fillOpacity);
                 visualizer.setBeamHeadSize(layer.beamHeadSize);
                 visualizer.setVelocityModulation(layer.velocityModulation);
+                visualizer.setBarAnchor(layer.barAnchor);
                 visualizer.render(renderData);
             }
 
@@ -368,15 +383,22 @@ int main() {
                 auto& layer = *layerPtr;
                 std::vector<float> renderData;
                 if (layer.shape == VisualizerShape::Waveform) {
+                    // Waveform uses raw audio buffer based on channel selection
+                    std::vector<float> channelBuffer;
+                    audioEngine.getChannelBuffer(channelBuffer, 8192, (int)layer.channel);
                     size_t triggerOffset = 0;
-                    for (size_t i = 0; i < 512 && i + 1 < audioBuffer.size(); ++i) {
-                        if (audioBuffer[i] < 0.0f && audioBuffer[i+1] >= 0.0f) {
+                    for (size_t i = 0; i < 512 && i + 1 < channelBuffer.size(); ++i) {
+                        if (channelBuffer[i] < 0.0f && channelBuffer[i+1] >= 0.0f) {
                             triggerOffset = i; break;
                         }
                     }
-                    size_t copyLen = std::min((size_t)2048, audioBuffer.size() - triggerOffset);
-                    renderData.assign(audioBuffer.begin() + triggerOffset, audioBuffer.begin() + triggerOffset + copyLen);
+                    size_t copyLen = std::min((size_t)2048, channelBuffer.size() - triggerOffset);
+                    renderData.assign(channelBuffer.begin() + triggerOffset, channelBuffer.begin() + triggerOffset + copyLen);
                 } else {
+                    // For FFT-based modes, perform FFT on the selected channel
+                    std::vector<float> channelBuffer;
+                    audioEngine.getChannelBuffer(channelBuffer, 8192, (int)layer.channel);
+                    analysisEngine.computeFFT(channelBuffer);
                     renderData = analysisEngine.computeLayerMagnitudes(layer.config, layer.prevMagnitudes);
                 }
 
@@ -393,6 +415,7 @@ int main() {
                 visualizer.setFillOpacity(layer.fillOpacity);
                 visualizer.setBeamHeadSize(layer.beamHeadSize);
                 visualizer.setVelocityModulation(layer.velocityModulation);
+                visualizer.setBarAnchor(layer.barAnchor);
                 visualizer.render(renderData);
             }
         } catch (const std::exception& e) {
@@ -674,6 +697,8 @@ int main() {
                                         visualizer.setFlip(layer.flipX, layer.flipY);
                                         visualizer.setBloomIntensity(layer.bloom);
                                         visualizer.setGridEnabled(layer.showGrid);
+                                        visualizer.setBeamHeadSize(layer.beamHeadSize);
+                                        visualizer.setVelocityModulation(layer.velocityModulation);
                                         visualizer.render(renderData);
                                     }
 
@@ -850,7 +875,10 @@ int main() {
 
             ImGui::ColorEdit4("Color", layer.color);
             ImGui::SliderFloat("Gain", &layer.config.gain, 0.1f, 200.0f);
-            ImGui::SliderFloat("Falloff", &layer.config.falloff, 0.5f, 0.99f);
+            ImGui::SliderFloat("Falloff (Decay)", &layer.config.falloff, 0.5f, 0.999f);
+            ImGui::SliderFloat("Attack", &layer.config.attack, 0.0f, 1.0f);
+            ImGui::SliderInt("Smoothing (Radius)", &layer.config.smoothing, 0, 10);
+            ImGui::SliderFloat("Spectrum Power (Log)", &layer.config.spectrumPower, 0.1f, 3.0f);
             ImGui::SliderFloat("Bar Height", &layer.barHeight, 0.01f, 2.0f);
             
             ImGui::Separator();
@@ -889,6 +917,32 @@ int main() {
                 if (layer.shape == VisualizerShape::OscilloscopeXY || layer.shape == VisualizerShape::OscilloscopeXY_Clean) {
                     ImGui::SliderFloat("Beam Head Size", &layer.beamHeadSize, 0.0f, 30.0f);
                     ImGui::SliderFloat("Velocity Brightness", &layer.velocityModulation, 0.0f, 2.0f);
+                }
+            }
+
+            // Curve specific settings outside the XY block
+            if (layer.shape == VisualizerShape::Curve) {
+                 ImGui::SliderFloat("Trace Thickness", &layer.traceWidth, 1.0f, 10.0f);
+                 ImGui::SliderFloat("Fill Opacity", &layer.fillOpacity, 0.0f, 1.0f);
+            }
+
+            // Audio Channel Selection (skip for oscilloscope modes)
+            if (layer.shape != VisualizerShape::OscilloscopeXY && layer.shape != VisualizerShape::OscilloscopeXY_Clean) {
+                ImGui::Separator();
+                ImGui::Text("Audio Channel");
+                const char* channels[] = {"Mixed", "Left", "Right"};
+                int chanIdx = (int)layer.channel;
+                if (ImGui::Combo("Channel", &chanIdx, channels, 3)) {
+                    layer.channel = (AudioChannel)chanIdx;
+                }
+            }
+
+            // Bar Position (only for Bars, Lines, Dots)
+            if (layer.shape == VisualizerShape::Bars || layer.shape == VisualizerShape::Lines || layer.shape == VisualizerShape::Dots) {
+                const char* anchors[] = {"Bottom", "Top", "Left", "Right", "Center"};
+                int anchorIdx = (int)layer.barAnchor;
+                if (ImGui::Combo("Bar Position", &anchorIdx, anchors, 5)) {
+                    layer.barAnchor = (BarAnchor)anchorIdx;
                 }
             }
 

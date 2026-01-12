@@ -13,6 +13,9 @@ struct ConfigLayer {
     float minFreq;
     float maxFreq;
     size_t numBars;
+    float attack = 0.8f;
+    int smoothing = 1;
+    float spectrumPower = 1.0f;
     
     float color[4];
     float barHeight;
@@ -30,6 +33,8 @@ struct ConfigLayer {
     float fillOpacity = 0.0f;
     float beamHeadSize = 0.0f;
     float velocityModulation = 0.0f;
+    int audioChannel = 0; // 0=Mixed, 1=Left, 2=Right
+    int barAnchor = 0; // 0=Bottom, 1=Top, 2=Left, 3=Right, 4=Center
 };
 
 struct AppConfig {

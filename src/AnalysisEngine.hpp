@@ -10,12 +10,22 @@ struct FrequencyBand {
     float energy;
 };
 
+enum class AudioChannel {
+    Mixed = 0,
+    Left = 1,
+    Right = 2
+};
+
 struct LayerConfig {
     float gain = 1.0f;
     float falloff = 0.9f;
     float minFreq = 20.0f;
     float maxFreq = 20000.0f;
     size_t numBars = 256;
+    float attack = 0.8f;      // 0.0 to 1.0
+    int smoothing = 1;        // Neighbor radius
+    float spectrumPower = 1.0f; // 1.0 = linear, 0.5 = sqrt (boost lows)
+    AudioChannel channel = AudioChannel::Mixed;
 };
 
 class AnalysisEngine {

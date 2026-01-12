@@ -15,6 +15,14 @@ enum class VisualizerShape {
     OscilloscopeXY_Clean
 };
 
+enum class BarAnchor {
+    Bottom = 0,
+    Top = 1,
+    Left = 2,
+    Right = 3,
+    Center = 4
+};
+
 class Visualizer {
 public:
     Visualizer();
@@ -37,6 +45,7 @@ public:
     void setFillOpacity(float opacity) { m_fillOpacity = opacity; }
     void setBeamHeadSize(float size) { m_beamHeadSize = size; }
     void setVelocityModulation(float amount) { m_velocityModulation = amount; }
+    void setBarAnchor(BarAnchor anchor) { m_barAnchor = anchor; }
 
     // FBO Persistence
     void setupPersistence(int width, int height);
@@ -64,6 +73,7 @@ private:
     float m_fillOpacity = 0.0f; // 0.0 = no fill, 1.0 = solid fill
     float m_beamHeadSize = 0.0f; // 0.0 = disabled
     float m_velocityModulation = 0.0f; // 0.0 = disabled
+    BarAnchor m_barAnchor = BarAnchor::Bottom;
 
     // FBO Persistence
     GLuint m_fbo = 0;

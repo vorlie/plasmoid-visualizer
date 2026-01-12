@@ -266,30 +266,93 @@ void Visualizer::render(const std::vector<float>& magnitudes) {
     float effectiveBarWidth = m_mirrored ? (1.0f / numBars) : (2.0f / numBars);
 
     auto addBar = [&](float x, float h, float width) {
+        // Helper to transform coordinates based on anchor
+        auto transformCoord = [&](float localX, float localY, float& outX, float& outY) {
+            switch (m_barAnchor) {
+                case BarAnchor::Bottom:
+                    // Default: bars grow upward from bottom
+                    outX = localX;
+                    outY = localY;
+                    break;
+                case BarAnchor::Top:
+                    // Flip Y: bars grow down from top
+                    outX = localX;
+                    outY = -localY;
+                    break;
+                case BarAnchor::Left:
+                    // Rotate 90° CCW: bars grow right from left edge
+                    outX = localY;
+                    outY = -localX;
+                    break;
+                case BarAnchor::Right:
+                    // Rotate 90° CW: bars grow left from right edge
+                    outX = -localY;
+                    outY = localX;
+                    break;
+                case BarAnchor::Center:
+                    // Mirror from center
+                    outX = localX;
+                    outY = localY - 1.0f; // Shift to center (height is already in [-1, 1] range)
+                    break;
+            }
+        };
+        
         if (m_shape == VisualizerShape::Bars) {
+            // Define bar corners in local space
+            float x0 = x, y0 = -1.0f;
+            float x1 = x + width, y1 = -1.0f;
+            float x2 = x, y2 = -1.0f + h;
+            float x3 = x + width, y3 = -1.0f + h;
+            
+            // Transform to world space
+            float tx0, ty0, tx1, ty1, tx2, ty2, tx3, ty3;
+            transformCoord(x0, y0, tx0, ty0);
+            transformCoord(x1, y1, tx1, ty1);
+            transformCoord(x2, y2, tx2, ty2);
+            transformCoord(x3, y3, tx3, ty3);
+            
             // First triangle
-            vertices.push_back(x);         vertices.push_back(-1.0f);     vertices.push_back(0.0f); vertices.push_back(0.0f); vertices.push_back(1.0f);
-            vertices.push_back(x + width); vertices.push_back(-1.0f);     vertices.push_back(1.0f); vertices.push_back(0.0f); vertices.push_back(1.0f);
-            vertices.push_back(x);         vertices.push_back(-1.0f + h); vertices.push_back(0.0f); vertices.push_back(1.0f); vertices.push_back(1.0f);
+            vertices.push_back(tx0); vertices.push_back(ty0); vertices.push_back(0.0f); vertices.push_back(0.0f); vertices.push_back(1.0f);
+            vertices.push_back(tx1); vertices.push_back(ty1); vertices.push_back(1.0f); vertices.push_back(0.0f); vertices.push_back(1.0f);
+            vertices.push_back(tx2); vertices.push_back(ty2); vertices.push_back(0.0f); vertices.push_back(1.0f); vertices.push_back(1.0f);
             // Second triangle
-            vertices.push_back(x + width); vertices.push_back(-1.0f);     vertices.push_back(1.0f); vertices.push_back(0.0f); vertices.push_back(1.0f);
-            vertices.push_back(x + width); vertices.push_back(-1.0f + h); vertices.push_back(1.0f); vertices.push_back(1.0f); vertices.push_back(1.0f);
-            vertices.push_back(x);         vertices.push_back(-1.0f + h); vertices.push_back(0.0f); vertices.push_back(1.0f); vertices.push_back(1.0f);
+            vertices.push_back(tx1); vertices.push_back(ty1); vertices.push_back(1.0f); vertices.push_back(0.0f); vertices.push_back(1.0f);
+            vertices.push_back(tx3); vertices.push_back(ty3); vertices.push_back(1.0f); vertices.push_back(1.0f); vertices.push_back(1.0f);
+            vertices.push_back(tx2); vertices.push_back(ty2); vertices.push_back(0.0f); vertices.push_back(1.0f); vertices.push_back(1.0f);
         } else if (m_shape == VisualizerShape::Lines) {
-            vertices.push_back(x + width/2); vertices.push_back(-1.0f);     vertices.push_back(0.5f); vertices.push_back(0.0f); vertices.push_back(1.0f);
-            vertices.push_back(x + width/2); vertices.push_back(-1.0f + h); vertices.push_back(0.5f); vertices.push_back(1.0f); vertices.push_back(1.0f);
+            float lx0 = x + width/2, ly0 = -1.0f;
+            float lx1 = x + width/2, ly1 = -1.0f + h;
+            float tx0, ty0, tx1, ty1;
+            transformCoord(lx0, ly0, tx0, ty0);
+            transformCoord(lx1, ly1, tx1, ty1);
+            vertices.push_back(tx0); vertices.push_back(ty0); vertices.push_back(0.5f); vertices.push_back(0.0f); vertices.push_back(1.0f);
+            vertices.push_back(tx1); vertices.push_back(ty1); vertices.push_back(0.5f); vertices.push_back(1.0f); vertices.push_back(1.0f);
         } else if (m_shape == VisualizerShape::Dots) {
             float dotSize = width * 0.8f;
             float centerX = x + width/2;
             float centerY = -1.0f + h;
-            // Square for the dot (fragment shader will clip it to circle)
-            vertices.push_back(centerX - dotSize/2); vertices.push_back(centerY - dotSize/2); vertices.push_back(0.0f); vertices.push_back(0.0f); vertices.push_back(1.0f);
-            vertices.push_back(centerX + dotSize/2); vertices.push_back(centerY - dotSize/2); vertices.push_back(1.0f); vertices.push_back(0.0f); vertices.push_back(1.0f);
-            vertices.push_back(centerX - dotSize/2); vertices.push_back(centerY + dotSize/2); vertices.push_back(0.0f); vertices.push_back(1.0f); vertices.push_back(1.0f);
             
-            vertices.push_back(centerX + dotSize/2); vertices.push_back(centerY - dotSize/2); vertices.push_back(1.0f); vertices.push_back(0.0f); vertices.push_back(1.0f);
-            vertices.push_back(centerX + dotSize/2); vertices.push_back(centerY + dotSize/2); vertices.push_back(1.0f); vertices.push_back(1.0f); vertices.push_back(1.0f);
-            vertices.push_back(centerX - dotSize/2); vertices.push_back(centerY + dotSize/2); vertices.push_back(0.0f); vertices.push_back(1.0f); vertices.push_back(1.0f);
+            // Transform center
+            float tcx, tcy;
+            transformCoord(centerX, centerY, tcx, tcy);
+            
+            // For dots, we need to rotate the dot quad as well
+            // Simplification: use dotSize in both dimensions
+            float dx = dotSize/2;
+            float dy = dotSize/2;
+            
+            // Apply rotation for Left/Right anchors
+            if (m_barAnchor == BarAnchor::Left || m_barAnchor == BarAnchor::Right) {
+                std::swap(dx, dy);
+            }
+            
+            vertices.push_back(tcx - dx); vertices.push_back(tcy - dy); vertices.push_back(0.0f); vertices.push_back(0.0f); vertices.push_back(1.0f);
+            vertices.push_back(tcx + dx); vertices.push_back(tcy - dy); vertices.push_back(1.0f); vertices.push_back(0.0f); vertices.push_back(1.0f);
+            vertices.push_back(tcx - dx); vertices.push_back(tcy + dy); vertices.push_back(0.0f); vertices.push_back(1.0f); vertices.push_back(1.0f);
+            
+            vertices.push_back(tcx + dx); vertices.push_back(tcy - dy); vertices.push_back(1.0f); vertices.push_back(0.0f); vertices.push_back(1.0f);
+            vertices.push_back(tcx + dx); vertices.push_back(tcy + dy); vertices.push_back(1.0f); vertices.push_back(1.0f); vertices.push_back(1.0f);
+            vertices.push_back(tcx - dx); vertices.push_back(tcy + dy); vertices.push_back(0.0f); vertices.push_back(1.0f); vertices.push_back(1.0f);
         }
     };
 
@@ -537,3 +600,4 @@ void Visualizer::render(const std::vector<float>& magnitudes) {
         glDrawArrays(GL_TRIANGLES, 0, (GLsizei)(vertices.size() / 5));
     }
 }
+

@@ -60,11 +60,20 @@ std::vector<float> AnalysisEngine::computeLayerMagnitudes(const LayerConfig& con
         b0 = std::clamp(b0, 0, (int)(m_fftSize / 2 - 1));
         b1 = std::clamp(b1, 0, (int)(m_fftSize / 2 - 1));
         
-        float mag = (m_magnitudes[b0] * (1.0f - fract) + m_magnitudes[b1] * fract) * config.gain;
+        float mag = (m_magnitudes[b0] * (1.0f - fract) + m_magnitudes[b1] * fract);
+        
+        // Apply Spectrum Power (Gamma correction for audio)
+        // Avee uses this to boost low amplitudes. 
+        // 1.0 = Linear, < 1.0 = Boost quiet sounds (Log-like)
+        if (config.spectrumPower != 1.0f && mag > 0.0f) {
+            mag = powf(mag, config.spectrumPower);
+        }
+
+        mag *= config.gain;
         
         // Apply temporal smoothing (attack/decay)
         if (mag > prevMagnitudes[i]) {
-            mag = prevMagnitudes[i] * 0.2f + mag * 0.8f;
+            mag = prevMagnitudes[i] * (1.0f - config.attack) + mag * config.attack;
         } else {
             mag = prevMagnitudes[i] * config.falloff;
         }
@@ -73,24 +82,28 @@ std::vector<float> AnalysisEngine::computeLayerMagnitudes(const LayerConfig& con
         prevMagnitudes[i] = mag;
     }
 
-    // Spatial smoothing (3-point moving average)
-    std::vector<float> smoothed(config.numBars);
-    for (size_t i = 0; i < config.numBars; ++i) {
-        float sum = layerMagnitudes[i] * 2.0f;
-        float weight = 2.0f;
-        
-        if (i > 0) {
-            sum += layerMagnitudes[i-1];
-            weight += 1.0f;
+    // Spatial smoothing (Variable radius moving average)
+    if (config.smoothing > 0) {
+        std::vector<float> smoothed = layerMagnitudes; // copy for result
+        for (size_t i = 0; i < config.numBars; ++i) {
+            float sum = 0.0f;
+            float weight = 0.0f;
+            
+            for (int r = -config.smoothing; r <= config.smoothing; ++r) {
+                int idx = (int)i + r;
+                if (idx >= 0 && idx < (int)config.numBars) {
+                    // Gaussian-ish weight or simple box? Box is fine for average.
+                    // Let's use a simple box for now as it's cleaner for low radii.
+                    sum += layerMagnitudes[idx];
+                    weight += 1.0f;
+                }
+            }
+            smoothed[i] = sum / weight;
         }
-        if (i < config.numBars - 1) {
-            sum += layerMagnitudes[i+1];
-            weight += 1.0f;
-        }
-        
-        smoothed[i] = sum / weight;
+        return smoothed;
     }
-    return smoothed;
+    
+    return layerMagnitudes;
 }
 
 void AnalysisEngine::process(const std::vector<float>& buffer) {
