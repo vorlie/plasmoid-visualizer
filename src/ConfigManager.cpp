@@ -64,7 +64,6 @@ bool ConfigManager::save(const std::string& filename, const AppConfig& config) {
             {"trace_width", layer.traceWidth},
             {"fill_opacity", layer.fillOpacity},
             {"beam_head_size", layer.beamHeadSize},
-            {"beam_head_size", layer.beamHeadSize},
             {"velocity_modulation", layer.velocityModulation},
             {"audio_channel", layer.audioChannel},
             {"bar_anchor", layer.barAnchor}
@@ -144,7 +143,6 @@ bool ConfigManager::load(const std::string& filename, AppConfig& config) {
                     l.showGrid = (*layerTbl)["show_grid"].value_or(true);
                     l.traceWidth = (*layerTbl)["trace_width"].value_or(2.0f);
                     l.fillOpacity = (*layerTbl)["fill_opacity"].value_or(0.0f);
-                    l.beamHeadSize = (*layerTbl)["beam_head_size"].value_or(0.0f);
                     l.beamHeadSize = (*layerTbl)["beam_head_size"].value_or(0.0f);
                     l.velocityModulation = (*layerTbl)["velocity_modulation"].value_or(0.0f);
                     l.audioChannel = (*layerTbl)["audio_channel"].value_or(0);

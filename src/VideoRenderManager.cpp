@@ -21,8 +21,7 @@ std::string VideoRenderManager::buildFfmpegCommand(const AppState& state) {
             break;
         case 2: 
             codec = "h264_vaapi"; 
-            extraParams = "-vaapi_device /dev/dri/renderD128 -vf 'format=nv12,hwupload,vflip' -qp " + std::to_string(s.crf);
-            // Note: vflip for VAAPI might be different, but let's assume standard for now
+            extraParams = "-vaapi_device /dev/dri/renderD128 -qp " + std::to_string(s.crf);
             break;
         case 3: 
             codec = "h264_amf"; 
@@ -34,8 +33,14 @@ std::string VideoRenderManager::buildFfmpegCommand(const AppState& state) {
             break;
     }
 
-    // Default vflip because OpenGL is bottom-to-top
-    std::string filter = (s.codecIdx == 2) ? "" : "-vf \"vflip,colorspace=all=bt709:iall=bt709\"";
+    // Default vflip because OpenGL is bottom-to-top. 
+    // For VAAPI, we must vflip BEFORE hwupload or use vflip_vaapi.
+    std::string filter;
+    if (s.codecIdx == 2) {
+        filter = "-vf \"vflip,format=nv12,hwupload\"";
+    } else {
+        filter = "-vf \"vflip,colorspace=all=bt709:iall=bt709\"";
+    }
 
     std::string cmd = "ffmpeg -y -f rawvideo -vcodec rawvideo -s " + 
                       std::to_string(s.width) + "x" + std::to_string(s.height) + 
@@ -118,6 +123,7 @@ void VideoRenderManager::update(
     );
 
     glReadPixels(0, 0, state.videoSettings.width, state.videoSettings.height, GL_RGB, GL_UNSIGNED_BYTE, m_pixelBuffer.data());
+    glBindFramebuffer(GL_FRAMEBUFFER, 0); // Restore default FBO for UI
     fwrite(m_pixelBuffer.data(), 1, m_pixelBuffer.size(), m_pipe);
 
     state.videoStatus.currentFrame++;

@@ -169,6 +169,9 @@ void RenderManager::renderOfflineFrame(
         }
         
         visualizer.endPersistence();
+        
+        // RE-BIND capture FBO because endPersistence() binds 0
+        glBindFramebuffer(GL_FRAMEBUFFER, m_captureFbo);
 
         // 2. MAIN PASS (Draw to FBO)
         glViewport(0, 0, width, height);
