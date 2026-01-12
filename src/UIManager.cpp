@@ -7,18 +7,32 @@
 #include <cstring>
 #include <vector>
 #include <filesystem>
+#include "VideoRenderManager.hpp"
 
 namespace fs = std::filesystem;
+
+static void HelpMarker(const char* desc)
+{
+    ImGui::TextDisabled("(?)");
+    if (ImGui::BeginItemTooltip())
+    {
+        ImGui::PushTextWrapPos(ImGui::GetFontSize() * 35.0f);
+        ImGui::TextUnformatted(desc);
+        ImGui::PopTextWrapPos();
+        ImGui::EndTooltip();
+    }
+}
 
 void UIManager::renderUI(
     AppState& state,
     AudioEngine& audioEngine,
     ParticleSystem& particleSystem,
     OscMusicEditor& oscMusicEditor,
-    SystemStats& systemStats
+    SystemStats& systemStats,
+    VideoRenderManager& videoRenderManager
 ) {
     renderMainMenu(state, audioEngine);
-    renderAudioSettings(state, audioEngine, oscMusicEditor);
+    renderAudioSettings(state, audioEngine, oscMusicEditor, videoRenderManager);
     renderLayerManager(state);
     renderLayerEditor(state);
     renderPlaylist(state, audioEngine);
@@ -50,7 +64,7 @@ void UIManager::renderMainMenu(AppState& state, AudioEngine& audioEngine) {
     }
 }
 
-void UIManager::renderAudioSettings(AppState& state, AudioEngine& audioEngine, OscMusicEditor& oscMusicEditor) {
+void UIManager::renderAudioSettings(AppState& state, AudioEngine& audioEngine, OscMusicEditor& oscMusicEditor, VideoRenderManager& videoRenderManager) {
     if (state.showAudioSettings) {
         ImGui::Begin("Audio Settings", &state.showAudioSettings);
         
@@ -155,71 +169,39 @@ void UIManager::renderAudioSettings(AppState& state, AudioEngine& audioEngine, O
 
             if (showRenderDialog) {
                 ImGui::Begin("Render Video", &showRenderDialog);
-                static int vidWidth = 1920;
-                static int vidHeight = 1080;
-                static int vidFps = 60;
-                static char outPath[256] = "output.mp4";
-                static float renderProgress = 0.0f;
-                static bool isRendering = false;
+                auto& s = state.videoSettings;
+                auto& status = state.videoStatus;
 
-                ImGui::InputInt("Width", &vidWidth);
-                ImGui::InputInt("Height", &vidHeight);
-                ImGui::InputInt("FPS", &vidFps);
-                ImGui::InputText("Output File", outPath, sizeof(outPath));
+                if (!status.isRendering) {
+                    ImGui::InputInt("Width", &s.width);
+                    ImGui::InputInt("Height", &s.height);
+                    ImGui::InputInt("FPS", &s.fps);
+                    ImGui::InputText("Output File", s.outputPath, sizeof(s.outputPath));
 
-                if (!isRendering && ImGui::Button("Start Render")) {
-                    isRendering = true;
-                    // Logic handled in a lambda or separate system would be better
-                    audioEngine.pause();
-                    std::string cmd = "ffmpeg -y -f rawvideo -vcodec rawvideo -s " + 
-                                      std::to_string(vidWidth) + "x" + std::to_string(vidHeight) + 
-                                      " -pix_fmt rgb24 -r " + std::to_string(vidFps) + 
-                                      " -i - -i \"" + std::string(state.filePath) + 
-                                      "\" -vf \"vflip,colorspace=all=bt709:iall=bt709\" -c:v libx264 -crf 16 -preset veryslow -pix_fmt yuv444p -c:a copy -shortest \"" + std::string(outPath) + "\"";
+                    const char* codecs[] = { "libx264 (CPU)", "h264_nvenc (NVIDIA)", "h264_vaapi (Intel/AMD)", "h264_amf (AMD)" };
+                    ImGui::Combo("Codec", &s.codecIdx, codecs, IM_ARRAYSIZE(codecs));
                     
-                    FILE* pipe = popen(cmd.c_str(), "w");
-                    if (pipe) {
-                        float duration = audioEngine.getDuration();
-                        ma_uint32 sampleRate = audioEngine.getSampleRate();
-                        int totalFrames = (int)(duration * vidFps);
-                        double dt = 1.0 / (double)vidFps;
-                        
-                        std::vector<float> frameAudio;
-                        std::vector<float> monoAudio;
-                        std::vector<uint8_t> pixels(vidWidth * vidHeight * 3);
-                        RenderManager rm; // Temp or shared
-                        AnalysisEngine ae(8192); // Shadow analysis for offline
-                        ae.setBeatSensitivity(state.beatSensitivity);
-                        Visualizer vz; // Shadow visualizer
-                        ParticleSystem ps; // Shadow particles
-                        ps.setParticleCount(state.particleCount);
-                        ps.setSpeed(state.particleSpeed);
-                        ps.setSize(state.particleSize);
-                        ps.setColor(state.particleColor[0], state.particleColor[1], state.particleColor[2], state.particleColor[3]);
+                    ImGui::SliderInt("Quality (CRF/QP)", &s.crf, 0, 51);
+                    ImGui::SameLine(); HelpMarker("Lower is better. 16-23 is good for x264.");
 
-                        for (int f = 0; f < totalFrames; f++) {
-                            renderProgress = (float)f / totalFrames;
-                            size_t offset = (size_t)((double)f * dt * (double)sampleRate); 
-                            audioEngine.readAudioFrames(offset, 8192, frameAudio); 
-                            monoAudio.resize(frameAudio.size() / 2);
-                            for(size_t i=0; i<monoAudio.size(); ++i) monoAudio[i] = (frameAudio[i*2] + frameAudio[i*2+1]) * 0.5f;
-
-                            rm.renderOfflineFrame(state, frameAudio, monoAudio, ae, vz, ps, vidWidth, vidHeight, (float)dt);
-                            
-                            glReadPixels(0, 0, vidWidth, vidHeight, GL_RGB, GL_UNSIGNED_BYTE, pixels.data());
-                            fwrite(pixels.data(), 1, pixels.size(), pipe);
-                        }
-                        pclose(pipe);
+                    if (ImGui::Button("Start Render")) {
+                        videoRenderManager.startRender(state, audioEngine);
                     }
-                    isRendering = false;
-                    showRenderDialog = false;
+                } else {
+                    ImGui::Text("Status: Rendering...");
+                    ImGui::Text("Frame: %d / %d", status.currentFrame, status.totalFrames);
+                    ImGui::ProgressBar(status.progress, ImVec2(-1.0f, 0.0f));
+                    
+                    if (ImGui::Button("Cancel Render")) {
+                        videoRenderManager.cancelRender(state);
+                    }
                 }
                 
-                if (isRendering) {
-                     ImGui::ProgressBar(renderProgress, ImVec2(0.0f, 0.0f));
-                     ImGui::SameLine();
-                     ImGui::Text("Rendering...");
+                if (!status.errorMessage.empty()) {
+                    ImGui::TextColored(ImVec4(1, 0, 0, 1), "Error: %s", status.errorMessage.c_str());
+                    if (ImGui::Button("Clear Error")) status.errorMessage = "";
                 }
+
                 ImGui::End();
             }
         } else if (state.currentAudioMode == AudioMode::TestTone) {

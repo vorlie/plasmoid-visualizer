@@ -38,6 +38,23 @@ struct VisualizerLayer {
     BarAnchor barAnchor = BarAnchor::Bottom;
 };
 
+struct VideoRenderSettings {
+    int width = 1920;
+    int height = 1080;
+    int fps = 60;
+    int codecIdx = 0; // 0=libx264, 1=h264_nvenc, 2=h264_vaapi, 3=h264_amf
+    int crf = 16;
+    char outputPath[256] = "output.mp4";
+};
+
+struct VideoRenderStatus {
+    bool isRendering = false;
+    float progress = 0.0f;
+    int currentFrame = 0;
+    int totalFrames = 0;
+    std::string errorMessage;
+};
+
 struct AppState {
     // Visualizer layers
     std::vector<VisualizerLayer> layers;
@@ -77,10 +94,19 @@ struct AppState {
     bool showAudioSettings = true;
 
     int selectedLayerIdx = 0;
+
+    // Video Rendering
+    VideoRenderSettings videoSettings;
+    VideoRenderStatus videoStatus;
     
     // Status message
     std::string statusMessage;
     ImVec4 statusColor = ImVec4(1, 1, 1, 1);
+
+    VisualizerLayer* getSelectedLayer() {
+        if (selectedLayerIdx >= 0 && selectedLayerIdx < (int)layers.size()) return &layers[selectedLayerIdx];
+        return nullptr;
+    }
 };
 
 #endif // APP_STATE_HPP

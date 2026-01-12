@@ -50,6 +50,14 @@ struct AppConfig {
     std::string captureDeviceName;
     bool useSpecificCaptureDevice;
     
+    // Video Render Settings
+    int vidWidth;
+    int vidHeight;
+    int vidFps;
+    int vidCodecIdx;
+    int vidCrf;
+    std::string vidOutputPath;
+
     std::vector<ConfigLayer> layers;
 };
 

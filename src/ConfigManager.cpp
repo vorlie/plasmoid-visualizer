@@ -28,7 +28,13 @@ bool ConfigManager::save(const std::string& filename, const AppConfig& config) {
         {"phosphor_decay", config.phosphorDecay},
         {"audio_mode", config.audioMode},
         {"capture_device_name", config.captureDeviceName},
-        {"use_specific_capture_device", config.useSpecificCaptureDevice}
+        {"use_specific_capture_device", config.useSpecificCaptureDevice},
+        {"vid_width", config.vidWidth},
+        {"vid_height", config.vidHeight},
+        {"vid_fps", config.vidFps},
+        {"vid_codec_idx", config.vidCodecIdx},
+        {"vid_crf", config.vidCrf},
+        {"vid_output_path", config.vidOutputPath}
     });
 
     toml::array layersArray;
@@ -96,6 +102,12 @@ bool ConfigManager::load(const std::string& filename, AppConfig& config) {
             config.audioMode = (*app)["audio_mode"].value_or(0);
             config.captureDeviceName = (*app)["capture_device_name"].value_or("");
             config.useSpecificCaptureDevice = (*app)["use_specific_capture_device"].value_or(false);
+            config.vidWidth = (int)(*app)["vid_width"].value_or(1920);
+            config.vidHeight = (int)(*app)["vid_height"].value_or(1080);
+            config.vidFps = (int)(*app)["vid_fps"].value_or(60);
+            config.vidCodecIdx = (int)(*app)["vid_codec_idx"].value_or(0);
+            config.vidCrf = (int)(*app)["vid_crf"].value_or(16);
+            config.vidOutputPath = (*app)["vid_output_path"].value_or("output.mp4");
         }
 
         if (auto layers = tbl["layers"].as_array()) {

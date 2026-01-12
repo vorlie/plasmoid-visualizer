@@ -13,6 +13,7 @@
 #include "AppState.hpp"
 #include "RenderManager.hpp"
 #include "UIManager.hpp"
+#include "VideoRenderManager.hpp"
 #include "ConfigLogic.hpp"
 
 #include <iostream>
@@ -73,6 +74,7 @@ int main() {
     AppState state;
     RenderManager renderManager;
     UIManager uiManager;
+    VideoRenderManager videoRenderManager;
 
     // Initial load
     ConfigLogic::loadSettings(state);
@@ -102,7 +104,19 @@ int main() {
             io.DeltaTime
         );
 
-        // 2. Render UI
+        // 2. Update Video Rendering (Non-blocking tick)
+        if (state.videoStatus.isRendering) {
+            videoRenderManager.update(
+                state, 
+                audioEngine, 
+                analysisEngine, 
+                visualizer, 
+                particleSystem, 
+                renderManager
+            );
+        }
+
+        // 3. Render UI
         ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
@@ -112,7 +126,8 @@ int main() {
             audioEngine, 
             particleSystem, 
             oscMusicEditor, 
-            systemStats
+            systemStats,
+            videoRenderManager
         );
 
         ImGui::Render();

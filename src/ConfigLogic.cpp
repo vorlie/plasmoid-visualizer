@@ -41,6 +41,13 @@ void ConfigLogic::saveSettings(const AppState& state) {
     config.audioMode = (int)state.currentAudioMode;
     config.captureDeviceName = state.selectedCaptureDeviceName;
     config.useSpecificCaptureDevice = state.useSpecificCaptureDevice;
+    
+    config.vidWidth = state.videoSettings.width;
+    config.vidHeight = state.videoSettings.height;
+    config.vidFps = state.videoSettings.fps;
+    config.vidCodecIdx = state.videoSettings.codecIdx;
+    config.vidCrf = state.videoSettings.crf;
+    config.vidOutputPath = state.videoSettings.outputPath;
 
     for (auto& l : state.layers) {
         ConfigLayer cl;
@@ -94,6 +101,13 @@ void ConfigLogic::loadSettings(AppState& state) {
         state.currentAudioMode = (AudioMode)config.audioMode;
         strncpy(state.selectedCaptureDeviceName, config.captureDeviceName.c_str(), sizeof(state.selectedCaptureDeviceName));
         state.useSpecificCaptureDevice = config.useSpecificCaptureDevice;
+
+        state.videoSettings.width = config.vidWidth;
+        state.videoSettings.height = config.vidHeight;
+        state.videoSettings.fps = config.vidFps;
+        state.videoSettings.codecIdx = config.vidCodecIdx;
+        state.videoSettings.crf = config.vidCrf;
+        strncpy(state.videoSettings.outputPath, config.vidOutputPath.c_str(), sizeof(state.videoSettings.outputPath));
 
         if (!config.layers.empty()) {
             state.layers.clear();

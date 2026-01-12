@@ -8,6 +8,8 @@
 #include "SystemStats.hpp"
 #include "imgui.h"
 
+class VideoRenderManager;
+
 class UIManager {
 public:
     void renderUI(
@@ -15,12 +17,13 @@ public:
         AudioEngine& audioEngine,
         ParticleSystem& particleSystem,
         OscMusicEditor& oscMusicEditor,
-        SystemStats& systemStats
+        SystemStats& systemStats,
+        VideoRenderManager& videoRenderManager
     );
 
 private:
     void renderMainMenu(AppState& state, AudioEngine& audioEngine);
-    void renderAudioSettings(AppState& state, AudioEngine& audioEngine, OscMusicEditor& oscMusicEditor);
+    void renderAudioSettings(AppState& state, AudioEngine& audioEngine, OscMusicEditor& oscMusicEditor, VideoRenderManager& videoRenderManager);
     void renderLayerManager(AppState& state);
     void renderLayerEditor(AppState& state);
     void renderPlaylist(AppState& state, AudioEngine& audioEngine);

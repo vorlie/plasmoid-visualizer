@@ -27,6 +27,7 @@ set(SOURCES
     src/RenderManager.cpp
     src/ConfigLogic.cpp
     src/UIManager.cpp
+    src/VideoRenderManager.cpp
     external/kissfft/kiss_fft.c
     external/tinyexpr/tinyexpr.c
     external/imgui/imgui.cpp
