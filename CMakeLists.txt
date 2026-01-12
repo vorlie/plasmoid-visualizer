@@ -14,16 +14,27 @@ find_package(GLEW REQUIRED)
 include_directories(src include external external/kissfft external/imgui external/tinyexpr external/tomlplusplus)
 
 # Source files
-file(GLOB_RECURSE SOURCES "src/*.cpp")
-list(APPEND SOURCES 
-    "external/kissfft/kiss_fft.c"
-    "external/tinyexpr/tinyexpr.c"
-    "external/imgui/imgui.cpp"
-    "external/imgui/imgui_draw.cpp"
-    "external/imgui/imgui_widgets.cpp"
-    "external/imgui/imgui_tables.cpp"
-    "external/imgui/imgui_impl_glfw.cpp"
-    "external/imgui/imgui_impl_opengl3.cpp"
+set(SOURCES
+    src/main.cpp
+    src/AudioEngine.cpp
+    src/AnalysisEngine.cpp
+    src/Visualizer.cpp
+    src/ConfigManager.cpp
+    src/ParticleSystem.cpp
+    src/SystemStats.cpp
+    src/OscMusicEditor.cpp
+    src/AppState.cpp
+    src/RenderManager.cpp
+    src/ConfigLogic.cpp
+    src/UIManager.cpp
+    external/kissfft/kiss_fft.c
+    external/tinyexpr/tinyexpr.c
+    external/imgui/imgui.cpp
+    external/imgui/imgui_draw.cpp
+    external/imgui/imgui_widgets.cpp
+    external/imgui/imgui_tables.cpp
+    external/imgui/imgui_impl_glfw.cpp
+    external/imgui/imgui_impl_opengl3.cpp
 )
 
 add_executable(PlasmoidVisualizer ${SOURCES})

@@ -47,6 +47,8 @@ struct AppConfig {
     float particleColor[4];
     float phosphorDecay;
     int audioMode; // enum cast
+    std::string captureDeviceName;
+    bool useSpecificCaptureDevice;
     
     std::vector<ConfigLayer> layers;
 };
