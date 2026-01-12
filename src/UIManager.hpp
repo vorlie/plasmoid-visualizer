@@ -24,6 +24,7 @@ public:
 private:
     void renderMainMenu(AppState& state, AudioEngine& audioEngine);
     void renderAudioSettings(AppState& state, AudioEngine& audioEngine, OscMusicEditor& oscMusicEditor, VideoRenderManager& videoRenderManager);
+    void renderZenKunSettings(AppState& state);
     void renderLayerManager(AppState& state);
     void renderLayerEditor(AppState& state);
     void renderPlaylist(AppState& state, AudioEngine& audioEngine);

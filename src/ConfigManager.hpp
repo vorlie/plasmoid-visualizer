@@ -45,7 +45,13 @@ struct AppConfig {
     float particleSpeed;
     float particleSize;
     float particleColor[4];
-    float phosphorDecay;
+    float phosphorDecay = 0.1f;
+
+    // Zen-Kun
+    bool zenKunEnabled = false;
+    std::string bgPath = "";
+    float bgPulse = 0.05f;
+    float bgShake = 0.02f;
     int audioMode; // enum cast
     std::string captureDeviceName;
     bool useSpecificCaptureDevice;

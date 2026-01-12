@@ -75,6 +75,19 @@ struct AppState {
     // Persistence settings
     float phosphorDecay = 0.1f;
     
+    // Zen-Kun Mode & Background Support
+    bool zenKunModeEnabled = false;
+    char backgroundImagePath[512] = "";
+    float bgPulseIntensity = 0.05f;
+    float shakeIntensity = 0.02f;
+    
+    // Dynamic effects state (updated every frame)
+    float currentBgScale = 1.0f;
+    float currentShakeX = 0.0f;
+    float currentShakeY = 0.0f;
+    float bgPulseEnergy = 0.0f;
+    float shakeEnergy = 0.0f;
+    
     // Audio mode
     AudioMode currentAudioMode = AudioMode::File;
     char selectedCaptureDeviceName[256] = "";
@@ -92,6 +105,7 @@ struct AppState {
     bool showParticleSettings = false;
     bool showGlobalSettings = true;
     bool showAudioSettings = true;
+    bool showZenKunSettings = false;
 
     int selectedLayerIdx = 0;
 

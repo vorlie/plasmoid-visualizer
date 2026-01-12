@@ -5,6 +5,9 @@
 #include <fstream>
 #include <sstream>
 
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb_image.h"
+
 static std::string loadShaderSource(const std::string& path) {
     std::ifstream f(path);
     if (!f.is_open()) {
@@ -167,9 +170,72 @@ void Visualizer::drawPersistenceBuffer() {
     if (!m_fbo) return;
     glUseProgram(m_quadShaderProgram);
     glUniform1i(glGetUniformLocation(m_quadShaderProgram, "uUseTexture"), 1); 
+    
+    // Ensure scale/offset are reset for persistence buffer
+    GLint scaleLoc = glGetUniformLocation(m_quadShaderProgram, "uScale");
+    GLint offsetLoc = glGetUniformLocation(m_quadShaderProgram, "uOffset");
+    if (scaleLoc != -1) glUniform1f(scaleLoc, 1.0f);
+    if (offsetLoc != -1) glUniform2f(offsetLoc, 0.0f, 0.0f);
+
     glBindVertexArray(m_quadVAO);
     glBindTexture(GL_TEXTURE_2D, m_fboTexture);
     glDrawArrays(GL_TRIANGLES, 0, 6);
+    glUseProgram(0);
+}
+
+bool Visualizer::loadBackground(const std::string& path) {
+    if (m_bgTexture) clearBackground();
+
+    int channels;
+    stbi_set_flip_vertically_on_load(true); 
+    unsigned char* data = stbi_load(path.c_str(), &m_bgWidth, &m_bgHeight, &channels, 4);
+    if (!data) {
+        std::cerr << "Failed to load background image: " << path << std::endl;
+        return false;
+    }
+
+    glGenTextures(1, &m_bgTexture);
+    glBindTexture(GL_TEXTURE_2D, m_bgTexture);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, m_bgWidth, m_bgHeight, 0, GL_RGBA, GL_UNSIGNED_BYTE, data);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+    stbi_image_free(data);
+    return true;
+}
+
+void Visualizer::clearBackground() {
+    if (m_bgTexture) {
+        glDeleteTextures(1, &m_bgTexture);
+        m_bgTexture = 0;
+    }
+}
+
+void Visualizer::drawBackground(float scale, float shakeX, float shakeY) {
+    if (!m_bgTexture) return;
+
+    glUseProgram(m_quadShaderProgram);
+    glUniform1i(glGetUniformLocation(m_quadShaderProgram, "uUseTexture"), 1);
+    
+    GLint colorLoc = glGetUniformLocation(m_quadShaderProgram, "uColor");
+    glUniform4f(colorLoc, 1.0f, 1.0f, 1.0f, 1.0f);
+
+    GLint scaleLoc = glGetUniformLocation(m_quadShaderProgram, "uScale");
+    GLint offsetLoc = glGetUniformLocation(m_quadShaderProgram, "uOffset");
+    
+    if (scaleLoc != -1) glUniform1f(scaleLoc, scale);
+    if (offsetLoc != -1) glUniform2f(offsetLoc, shakeX, shakeY);
+
+    glBindVertexArray(m_quadVAO);
+    glBindTexture(GL_TEXTURE_2D, m_bgTexture);
+    glDrawArrays(GL_TRIANGLES, 0, 6);
+    
+    // Reset uniforms for safety
+    if (scaleLoc != -1) glUniform1f(scaleLoc, 1.0f);
+    if (offsetLoc != -1) glUniform2f(offsetLoc, 0.0f, 0.0f);
+    
     glUseProgram(0);
 }
 
@@ -203,6 +269,11 @@ void Visualizer::drawFullscreenDimmer(float decayRate) {
     GLint colorLoc = glGetUniformLocation(m_quadShaderProgram, "uColor");
     glUniform4f(colorLoc, 0.0f, 0.0f, 0.0f, decayRate);
     glUniform1i(glGetUniformLocation(m_quadShaderProgram, "uUseTexture"), 0); // Tell shader not to use texture
+
+    GLint scaleLoc = glGetUniformLocation(m_quadShaderProgram, "uScale");
+    GLint offsetLoc = glGetUniformLocation(m_quadShaderProgram, "uOffset");
+    if (scaleLoc != -1) glUniform1f(scaleLoc, 1.0f);
+    if (offsetLoc != -1) glUniform2f(offsetLoc, 0.0f, 0.0f);
 
     glBindVertexArray(m_quadVAO);
     glDrawArrays(GL_TRIANGLES, 0, 6);

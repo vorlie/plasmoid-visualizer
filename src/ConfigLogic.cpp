@@ -41,6 +41,11 @@ void ConfigLogic::saveSettings(const AppState& state) {
     config.audioMode = (int)state.currentAudioMode;
     config.captureDeviceName = state.selectedCaptureDeviceName;
     config.useSpecificCaptureDevice = state.useSpecificCaptureDevice;
+
+    config.zenKunEnabled = state.zenKunModeEnabled;
+    config.bgPath = state.backgroundImagePath;
+    config.bgPulse = state.bgPulseIntensity;
+    config.bgShake = state.shakeIntensity;
     
     config.vidWidth = state.videoSettings.width;
     config.vidHeight = state.videoSettings.height;
@@ -101,6 +106,12 @@ void ConfigLogic::loadSettings(AppState& state) {
         state.currentAudioMode = (AudioMode)config.audioMode;
         strncpy(state.selectedCaptureDeviceName, config.captureDeviceName.c_str(), sizeof(state.selectedCaptureDeviceName));
         state.useSpecificCaptureDevice = config.useSpecificCaptureDevice;
+
+        state.zenKunModeEnabled = config.zenKunEnabled;
+        strncpy(state.backgroundImagePath, config.bgPath.c_str(), sizeof(state.backgroundImagePath) - 1);
+        state.backgroundImagePath[sizeof(state.backgroundImagePath) - 1] = '\0';
+        state.bgPulseIntensity = config.bgPulse;
+        state.shakeIntensity = config.bgShake;
 
         state.videoSettings.width = config.vidWidth;
         state.videoSettings.height = config.vidHeight;

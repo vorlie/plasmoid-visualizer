@@ -34,7 +34,11 @@ bool ConfigManager::save(const std::string& filename, const AppConfig& config) {
         {"vid_fps", config.vidFps},
         {"vid_codec_idx", config.vidCodecIdx},
         {"vid_crf", config.vidCrf},
-        {"vid_output_path", config.vidOutputPath}
+        {"vid_output_path", config.vidOutputPath},
+        {"zen_kun_enabled", config.zenKunEnabled},
+        {"bg_path", config.bgPath},
+        {"bg_pulse", config.bgPulse},
+        {"bg_shake", config.bgShake}
     });
 
     toml::array layersArray;
@@ -107,6 +111,10 @@ bool ConfigManager::load(const std::string& filename, AppConfig& config) {
             config.vidCodecIdx = (int)(*app)["vid_codec_idx"].value_or(0);
             config.vidCrf = (int)(*app)["vid_crf"].value_or(16);
             config.vidOutputPath = (*app)["vid_output_path"].value_or("output.mp4");
+            config.zenKunEnabled = (*app)["zen_kun_enabled"].value_or(false);
+            config.bgPath = (*app)["bg_path"].value_or("");
+            config.bgPulse = (*app)["bg_pulse"].value_or(0.05f);
+            config.bgShake = (*app)["bg_shake"].value_or(0.02f);
         }
 
         if (auto layers = tbl["layers"].as_array()) {

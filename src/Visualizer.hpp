@@ -4,6 +4,7 @@
 #include <GL/glew.h>
 #include <GLFW/glfw3.h>
 #include <vector>
+#include <string>
 
 enum class VisualizerShape {
     Bars,
@@ -52,6 +53,11 @@ public:
     void beginPersistence();
     void endPersistence();
     void drawPersistenceBuffer();
+    
+    // Background Image & Zen-Kun Effects
+    bool loadBackground(const std::string& path);
+    void drawBackground(float scale, float shakeX, float shakeY);
+    void clearBackground();
 
 private:
     GLuint m_shaderProgram;
@@ -81,6 +87,11 @@ private:
     int m_fboWidth = 0;
     int m_fboHeight = 0;
     GLuint m_quadVAO = 0, m_quadVBO = 0;
+
+    // Background Image
+    GLuint m_bgTexture = 0;
+    int m_bgWidth = 0;
+    int m_bgHeight = 0;
 
     void initShaders();
     void initQuad();

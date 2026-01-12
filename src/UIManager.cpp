@@ -32,7 +32,8 @@ void UIManager::renderUI(
     VideoRenderManager& videoRenderManager
 ) {
     renderMainMenu(state, audioEngine);
-    renderAudioSettings(state, audioEngine, oscMusicEditor, videoRenderManager);
+    if (state.showAudioSettings) renderAudioSettings(state, audioEngine, oscMusicEditor, videoRenderManager);
+    if (state.showZenKunSettings) renderZenKunSettings(state);
     renderLayerManager(state);
     renderLayerEditor(state);
     renderPlaylist(state, audioEngine);
@@ -279,6 +280,21 @@ void UIManager::renderLayerManager(AppState& state) {
         ImGui::Separator();
         for (int i = 0; i < (int)state.layers.size(); i++) {
             ImGui::PushID(i);
+            
+            // Reordering buttons
+            if (ImGui::Button("^") && i > 0) {
+                std::swap(state.layers[i], state.layers[i-1]);
+                if (state.selectedLayerIdx == i) state.selectedLayerIdx = i - 1;
+                else if (state.selectedLayerIdx == i - 1) state.selectedLayerIdx = i;
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("v") && i < (int)state.layers.size() - 1) {
+                std::swap(state.layers[i], state.layers[i+1]);
+                if (state.selectedLayerIdx == i) state.selectedLayerIdx = i + 1;
+                else if (state.selectedLayerIdx == i + 1) state.selectedLayerIdx = i;
+            }
+            ImGui::SameLine();
+
             if (ImGui::Selectable(state.layers[i].name.c_str(), state.selectedLayerIdx == i)) state.selectedLayerIdx = i;
             ImGui::SameLine(ImGui::GetWindowWidth() - 50);
             ImGui::Checkbox("##visible", &state.layers[i].visible);
@@ -426,6 +442,26 @@ void UIManager::renderGlobalSettings(AppState& state) {
         ImGui::SliderFloat("Phosphor Decay", &state.phosphorDecay, 0.01f, 0.5f);
         ImGui::SameLine();
         if (ImGui::Button("Reset Decay")) state.phosphorDecay = 0.1f;
+        
+        ImGui::Separator();
+        if (ImGui::Button("Background Settings")) state.showZenKunSettings = true;
+        
+        ImGui::End();
+    }
+}
+
+void UIManager::renderZenKunSettings(AppState& state) {
+    if (state.showZenKunSettings) {
+        ImGui::Begin("Background Settings", &state.showZenKunSettings);
+        ImGui::Checkbox("Enable Background ", &state.zenKunModeEnabled);
+        if (state.zenKunModeEnabled) {
+            ImGui::InputText("Background Path", state.backgroundImagePath, sizeof(state.backgroundImagePath));
+            ImGui::SameLine(); HelpMarker("Path to image file (JPG/PNG). Stretched to fill screen.");
+            
+            ImGui::SliderFloat("Beat Pulse", &state.bgPulseIntensity, 0.0f, 0.5f);
+            ImGui::SliderFloat("Screen Shake", &state.shakeIntensity, 0.0f, 0.2f);
+            ImGui::SliderFloat("Beat Sensitivity", &state.beatSensitivity, 1.0f, 2.0f);
+        }
         ImGui::End();
     }
 }

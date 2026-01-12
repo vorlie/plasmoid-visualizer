@@ -28,6 +28,25 @@ void RenderManager::renderToTarget(
 ) {
     bool isBeat = false;
     std::vector<float> audioBuffer;
+    
+    // Background loading/update
+    static char lastBgPath[512] = "";
+    if (strcmp(state.backgroundImagePath, lastBgPath) != 0) {
+        if (strlen(state.backgroundImagePath) > 0) {
+            visualizer.loadBackground(state.backgroundImagePath);
+        } else {
+            visualizer.clearBackground();
+        }
+        strncpy(lastBgPath, state.backgroundImagePath, sizeof(lastBgPath) - 1);
+        lastBgPath[sizeof(lastBgPath) - 1] = '\0';
+    }
+
+    // Beat Effects interpolation
+    if (!state.zenKunModeEnabled) {
+        state.currentBgScale = 1.0f;
+        state.currentShakeX = 0.0f;
+        state.currentShakeY = 0.0f;
+    }
 
     try {
         if (!isOffline) {
@@ -35,10 +54,34 @@ void RenderManager::renderToTarget(
             analysisEngine.computeFFT(audioBuffer);
         }
         
-        if (state.particlesEnabled) {
+        if (state.particlesEnabled || state.zenKunModeEnabled) {
             analysisEngine.setBeatSensitivity(state.beatSensitivity);
             isBeat = analysisEngine.detectBeat(deltaTime);
-            particleSystem.update(deltaTime, isBeat);
+            if (state.particlesEnabled) particleSystem.update(deltaTime, isBeat);
+        }
+
+        // Zen-Kun Beat Effects (Smoother Energy-based approach)
+        if (state.zenKunModeEnabled) {
+            if (isBeat) {
+                state.bgPulseEnergy = 1.0f;
+                state.shakeEnergy = 1.0f;
+            }
+
+            // Decay energy exponentially
+            state.bgPulseEnergy = std::max(0.0f, state.bgPulseEnergy - deltaTime * 4.0f); // Fast decay for pulse
+            state.shakeEnergy = std::max(0.0f, state.shakeEnergy - deltaTime * 8.0f);     // Faster decay for shake
+
+            // Apply energy to visual variables
+            state.currentBgScale = 1.0f + (state.bgPulseEnergy * state.bgPulseIntensity);
+            
+            // Random shake that vibrates as long as energy > 0
+            if (state.shakeEnergy > 0.001f) {
+                state.currentShakeX = ((float)rand() / RAND_MAX * 2.0f - 1.0f) * state.shakeIntensity * state.shakeEnergy;
+                state.currentShakeY = ((float)rand() / RAND_MAX * 2.0f - 1.0f) * state.shakeIntensity * state.shakeEnergy;
+            } else {
+                state.currentShakeX = 0.0f;
+                state.currentShakeY = 0.0f;
+            }
         }
 
         // 1. PERSISTENCE PASS (Render to FBO)
@@ -57,6 +100,11 @@ void RenderManager::renderToTarget(
         } else {
             glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
             glClear(GL_COLOR_BUFFER_BIT);
+        }
+
+        // 0. BACKGROUND PASS
+        if (state.zenKunModeEnabled) {
+            visualizer.drawBackground(state.currentBgScale, state.currentShakeX, state.currentShakeY);
         }
 
         glEnable(GL_BLEND);
@@ -84,7 +132,7 @@ void RenderManager::renderToTarget(
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
         // 2.c Draw Grid (on top)
-        visualizer.renderGrid();
+        //visualizer.renderGrid();
 
         // 2.d Render non-persistent layers directly
         renderDirectLayers(state, audioEngine, analysisEngine, visualizer);
@@ -133,10 +181,29 @@ void RenderManager::renderOfflineFrame(
         
         glBindFramebuffer(GL_FRAMEBUFFER, m_captureFbo);
 
-        if (state.particlesEnabled) {
+        if (state.particlesEnabled || state.zenKunModeEnabled) {
             analysisEngine.setBeatSensitivity(state.beatSensitivity);
             isBeat = analysisEngine.detectBeat(deltaTime);
-            particleSystem.update(deltaTime, isBeat);
+            if (state.particlesEnabled) particleSystem.update(deltaTime, isBeat);
+        }
+
+        // Zen-Kun Beat Effects (Sync for offline, Smoothed)
+        if (state.zenKunModeEnabled) {
+            if (isBeat) {
+                state.bgPulseEnergy = 1.0f;
+                state.shakeEnergy = 1.0f;
+            }
+            state.bgPulseEnergy = std::max(0.0f, state.bgPulseEnergy - deltaTime * 4.0f);
+            state.shakeEnergy = std::max(0.0f, state.shakeEnergy - deltaTime * 8.0f);
+
+            state.currentBgScale = 1.0f + (state.bgPulseEnergy * state.bgPulseIntensity);
+            if (state.shakeEnergy > 0.001f) {
+                state.currentShakeX = ((float)rand() / RAND_MAX * 2.0f - 1.0f) * state.shakeIntensity * state.shakeEnergy;
+                state.currentShakeY = ((float)rand() / RAND_MAX * 2.0f - 1.0f) * state.shakeIntensity * state.shakeEnergy;
+            } else {
+                state.currentShakeX = 0.0f;
+                state.currentShakeY = 0.0f;
+            }
         }
 
         // 1. PERSISTENCE PASS (Render to FBO)
@@ -155,6 +222,11 @@ void RenderManager::renderOfflineFrame(
         } else {
             glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
             glClear(GL_COLOR_BUFFER_BIT);
+        }
+
+        // 0. BACKGROUND PASS
+        if (state.zenKunModeEnabled) {
+            visualizer.drawBackground(state.currentBgScale, state.currentShakeX, state.currentShakeY);
         }
 
         glEnable(GL_BLEND);
@@ -187,7 +259,7 @@ void RenderManager::renderOfflineFrame(
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
         // 2.c Draw Grid
-        visualizer.renderGrid();
+        //visualizer.renderGrid();
 
         // 2.d Render non-persistent layers directly
         renderDirectLayers(state, dummyAudio, analysisEngine, visualizer, &stereoBuffer, &monoBuffer);
