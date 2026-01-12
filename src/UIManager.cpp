@@ -169,8 +169,7 @@ void UIManager::renderAudioSettings(AppState& state, AudioEngine& audioEngine, O
 
                 if (!isRendering && ImGui::Button("Start Render")) {
                     isRendering = true;
-                    // Logic handled in a lambda or separate system would be better,
-                    // but for Phase 3 we keep it here but using RenderManager.
+                    // Logic handled in a lambda or separate system would be better
                     audioEngine.pause();
                     std::string cmd = "ffmpeg -y -f rawvideo -vcodec rawvideo -s " + 
                                       std::to_string(vidWidth) + "x" + std::to_string(vidHeight) + 
