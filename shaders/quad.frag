@@ -12,10 +12,6 @@ uniform float uAspect = 1.0;      // width/height
 void main() {
     if (uCornerRadius > 0.0) {
         // Distance field for rounded rect
-        // Transform UV to centered [-aspect, -1] to [aspect, 1]
-        // Actually, we need to map the quad's local coords [-1, 1] back.
-        // TexCoord is updated by vert shader, so we need a separate varying for local pos?
-        // Let's assume TexCoord mapping is fine for simple fills.
         vec2 uv = (TexCoord * 2.0 - 1.0) * vec2(uAspect, 1.0);
         vec2 size = vec2(uAspect, 1.0);
         vec2 q = abs(uv) - size + uCornerRadius;

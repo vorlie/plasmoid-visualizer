@@ -19,7 +19,5 @@ void main() {
     gl_Position = vec4(pos + uOffset, 0.0, 1.0);
     
     // Remap TexCoord [0, 1] to sub-rect [tx, ty, tw, th]
-    // Normalized input TexCoord is usually [0, 1] or [-1, 1]? 
-    // quadVertices in Visualizer.cpp uses [0, 1] for texCoords.
     TexCoord = uTexRect.xy + aTexCoord * uTexRect.zw;
 }

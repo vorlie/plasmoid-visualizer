@@ -47,6 +47,8 @@ struct AppConfig {
     float particleColor[4];
     float phosphorDecay = 0.1f;
     float globalGain = 1.0f;
+    bool enableVsync = true;
+    int targetFps = 60;
 
     // Zen-Kun
     bool zenKunEnabled = false;

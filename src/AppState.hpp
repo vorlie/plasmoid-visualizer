@@ -75,6 +75,13 @@ struct AppState {
     // Persistence settings
     float phosphorDecay = 0.1f;
     
+    // Audio Processing
+    float globalGain = 1.0f;
+
+    // Display Settings
+    bool enableVsync = true;
+    int targetFps = 60;
+
     // Zen-Kun Mode & Background Support
     bool zenKunModeEnabled = false;
     char backgroundImagePath[512] = "";
@@ -116,15 +123,14 @@ struct AppState {
     bool showAudioSettings = true;
     bool showZenKunSettings = false;
 
-    // Audio Processing
-    float globalGain = 1.0f;
-
     int selectedLayerIdx = 0;
 
     // Video Rendering
     VideoRenderSettings videoSettings;
     VideoRenderStatus videoStatus;
-    
+
+
+
     // Status message
     std::string statusMessage;
     ImVec4 statusColor = ImVec4(1, 1, 1, 1);

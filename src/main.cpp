@@ -31,8 +31,9 @@ int main() {
     }
 
     glfwMakeContextCurrent(window);
+    
     glewInit();
-    glfwSwapInterval(1);
+    // glfwSwapInterval(1); // Will be set after config load
 
     // Setup ImGui
     IMGUI_CHECKVERSION();
@@ -78,8 +79,21 @@ int main() {
 
     // Initial load
     ConfigLogic::loadSettings(state);
+    
+    // Apply VSync
+    glfwSwapInterval(state.enableVsync ? 1 : 0);
+    bool prevVsync = state.enableVsync;
+    
+    // Frame limiting state
+    double lastTime = glfwGetTime();
 
     while (!glfwWindowShouldClose(window)) {
+        // Runtime VSync toggle
+        if (state.enableVsync != prevVsync) {
+            glfwSwapInterval(state.enableVsync ? 1 : 0);
+            prevVsync = state.enableVsync;
+        }
+
         glfwPollEvents();
 
         // Handle F11 fullscreen toggle (edge-triggered)
@@ -134,6 +148,18 @@ int main() {
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 
         glfwSwapBuffers(window);
+        
+        // Frame limiting
+        if (!state.enableVsync && state.targetFps > 0) {
+            double targetFrameTime = 1.0 / (double)state.targetFps;
+            while (glfwGetTime() < lastTime + targetFrameTime) {
+                // Busy wait or sleep (sleep is better for CPU)
+                // std::this_thread::sleep_for(std::chrono::duration<double>(targetFrameTime - (glfwGetTime() - lastTime)));
+            }
+            lastTime = glfwGetTime();
+        } else {
+             lastTime = glfwGetTime(); // Just update for reference if needed
+        }
     }
 
     ImGui_ImplOpenGL3_Shutdown();

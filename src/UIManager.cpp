@@ -449,6 +449,13 @@ void UIManager::renderGlobalSettings(AppState& state) {
         
         ImGui::Separator();
         if (ImGui::Button("Background Settings")) state.showZenKunSettings = true;
+
+        ImGui::Separator();
+        ImGui::Text("Display Settings");
+        ImGui::Checkbox("Enable V-Sync", &state.enableVsync);
+        if (!state.enableVsync) {
+            ImGui::SliderInt("Target FPS", &state.targetFps, 15, 300);
+        }
         
         ImGui::End();
     }
