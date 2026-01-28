@@ -52,6 +52,12 @@ struct AppConfig {
     std::string bgPath = "";
     float bgPulse = 0.05f;
     float bgShake = 0.02f;
+    float shakeTilt = 0.05f;
+    float shakeZoom = 0.02f;
+    std::string songTitle = "Song Title";
+    std::string artistName = "Artist Name";
+    bool showSongInfo = true;
+    
     int audioMode; // enum cast
     std::string captureDeviceName;
     bool useSpecificCaptureDevice;

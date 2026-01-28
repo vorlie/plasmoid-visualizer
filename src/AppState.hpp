@@ -80,11 +80,20 @@ struct AppState {
     char backgroundImagePath[512] = "";
     float bgPulseIntensity = 0.05f;
     float shakeIntensity = 0.02f;
+    float shakeTiltIntensity = 0.05f;
+    float shakeZoomIntensity = 0.02f;
+    
+    // Song Metadata
+    char songTitle[256] = "Song Title";
+    char artistName[256] = "Artist Name";
+    bool showSongInfo = true;
     
     // Dynamic effects state (updated every frame)
     float currentBgScale = 1.0f;
     float currentShakeX = 0.0f;
     float currentShakeY = 0.0f;
+    float currentShakeTilt = 0.0f;
+    float currentShakeZoom = 0.0f;
     float bgPulseEnergy = 0.0f;
     float shakeEnergy = 0.0f;
     

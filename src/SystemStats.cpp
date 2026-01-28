@@ -1,9 +1,11 @@
 #include "SystemStats.hpp"
-#include <fstream>
-#include <sstream>
-#include <unistd.h>
-#include <vector>
+
+#ifdef _WIN32
+#include <psapi.h>
 #include <GL/glew.h>
+#include <string>
+#include <cstdint>
+#include <iostream>
 
 SystemStats::SystemStats() {
     updateRam();
@@ -12,7 +14,84 @@ SystemStats::SystemStats() {
 
 void SystemStats::update(double dt) {
     m_updateTimer += dt;
-    if (m_updateTimer >= 1.0) { // Update once per second
+    if (m_updateTimer >= 1.0) {
+        updateRam();
+        updateCpu();
+        m_updateTimer = 0.0;
+    }
+}
+
+void SystemStats::updateRam() {
+    PROCESS_MEMORY_COUNTERS_EX pmc;
+    if (GetProcessMemoryInfo(GetCurrentProcess(), (PROCESS_MEMORY_COUNTERS*)&pmc, sizeof(pmc))) {
+        m_ramUsageMB = pmc.WorkingSetSize / (1024.0f * 1024.0f);
+    }
+}
+
+static uint64_t FileTimeToUint64(const FILETIME& ft) {
+    return (((uint64_t)ft.dwHighDateTime) << 32) | ft.dwLowDateTime;
+}
+
+void SystemStats::updateCpu() {
+    // 1. Process CPU
+    FILETIME creationTime, exitTime, kernelTime, userTime;
+    if (GetProcessTimes(GetCurrentProcess(), &creationTime, &exitTime, &kernelTime, &userTime)) {
+        uint64_t currentProcessTicks = FileTimeToUint64(kernelTime) + FileTimeToUint64(userTime);
+        
+        // 2. Global CPU
+        FILETIME idleTime, sysKernelTime, sysUserTime;
+        if (GetSystemTimes(&idleTime, &sysKernelTime, &sysUserTime)) {
+            uint64_t currentTotalTicks = FileTimeToUint64(sysKernelTime) + FileTimeToUint64(sysUserTime);
+            
+            if (FileTimeToUint64(m_lastTotalTicks) > 0) {
+                uint64_t deltaProcess = currentProcessTicks - FileTimeToUint64(m_lastProcessTicks);
+                uint64_t deltaTotal = currentTotalTicks - FileTimeToUint64(m_lastTotalTicks);
+                
+                if (deltaTotal > 0) {
+                    m_globalCpuUsage = (float)deltaProcess / (float)deltaTotal * 100.0f;
+                    
+                    SYSTEM_INFO sysInfo;
+                    GetSystemInfo(&sysInfo);
+                    m_processCpuUsage = m_globalCpuUsage * sysInfo.dwNumberOfProcessors;
+                }
+            }
+            // Store raw ticks
+            m_lastProcessTicks.dwLowDateTime = (DWORD)(currentProcessTicks & 0xFFFFFFFF);
+            m_lastProcessTicks.dwHighDateTime = (DWORD)(currentProcessTicks >> 32);
+            m_lastTotalTicks.dwLowDateTime = (DWORD)(currentTotalTicks & 0xFFFFFFFF);
+            m_lastTotalTicks.dwHighDateTime = (DWORD)(currentTotalTicks >> 32);
+        }
+    }
+
+    // GPU Info - Minimal fallback on Windows
+    m_gpuInfo = "N/A (Win32)";
+    
+    // Check OpenGL extensions if context is valid (glew might be initialized by now)
+    if (glewIsExtensionSupported("GL_NVX_gpu_memory_info")) {
+        GLint dedicatedMemKb = 0;
+        GLint curAvailKb = 0;
+        glGetIntegerv(0x9047 /* GL_GPU_MEM_INFO_DEDICATED_VIDMEM_NVX */, &dedicatedMemKb);
+        glGetIntegerv(0x9049 /* GL_GPU_MEM_INFO_CURRENT_AVAILABLE_VIDMEM_NVX */, &curAvailKb);
+        
+        m_gpuInfo = "NV: " + std::to_string((dedicatedMemKb - curAvailKb) / 1024) + " / " + std::to_string(dedicatedMemKb / 1024) + " MB";
+    }
+}
+
+#else
+// ... (Linux Implementation remains isolated)
+#include <unistd.h>
+#include <vector>
+#include <fstream>
+#include <sstream>
+
+SystemStats::SystemStats() {
+    updateRam();
+    updateCpu();
+}
+
+void SystemStats::update(double dt) {
+    m_updateTimer += dt;
+    if (m_updateTimer >= 1.0) {
         updateRam();
         updateCpu();
         m_updateTimer = 0.0;
@@ -34,7 +113,6 @@ void SystemStats::updateRam() {
 }
 
 void SystemStats::updateCpu() {
-    // 1. Get process ticks
     std::ifstream pfile("/proc/self/stat");
     std::string dummy;
     for (int i = 0; i < 13; ++i) pfile >> dummy;
@@ -42,67 +120,23 @@ void SystemStats::updateCpu() {
     pfile >> utime >> stime;
     long totalProcessTicks = utime + stime;
 
-    // 2. Get total system ticks
     std::ifstream sfile("/proc/stat");
-    sfile >> dummy; // "cpu"
+    sfile >> dummy;
     long user, nice, system, idle, iowait, irq, softirq, steal;
     sfile >> user >> nice >> system >> idle >> iowait >> irq >> softirq >> steal;
     long totalSystemTicks = user + nice + system + idle + iowait + irq + softirq + steal;
+
     if (m_lastTotalTicks > 0) {
-        long deltaProcess = totalProcessTicks - m_lastProcessTicks;
-        long deltaSystem = totalSystemTicks - m_lastTotalTicks;
+        long deltaProcess = totalProcessTicks - (long)m_lastProcessTicks;
+        long deltaSystem = totalSystemTicks - (long)m_lastTotalTicks;
         if (deltaSystem > 0) {
             m_globalCpuUsage = (float)deltaProcess / (float)deltaSystem * 100.0f;
-            
             static long numCores = sysconf(_SC_NPROCESSORS_ONLN);
             m_processCpuUsage = m_globalCpuUsage * numCores;
         }
     }
-
-    m_lastProcessTicks = totalProcessTicks;
-    m_lastTotalTicks = totalSystemTicks;
-
-    // GPU Info (Memory only on Linux via sysfs or OpenGL extensions)
-    m_gpuInfo = "N/A";
-
-    // 1. Try Linux sysfs (reliable for AMD/recent NVIDIA/Intel)
-    // We check common card indices
-    for (int i = 0; i < 2; ++i) {
-        std::string cardPath = "/sys/class/drm/card" + std::to_string(i) + "/device/";
-        std::ifstream vramTotFile(cardPath + "mem_info_vram_total");
-        if (vramTotFile) {
-            std::ifstream vramUsedFile(cardPath + "mem_info_vram_used");
-            long long total = 0, used = 0;
-            vramTotFile >> total;
-            vramUsedFile >> used;
-            
-            if (total > 0) {
-                std::stringstream ss;
-                ss << used / (1024 * 1024) << " / " << total / (1024 * 1024) << " MB";
-                m_gpuInfo = ss.str();
-                return; // Found a valid card
-            }
-        }
-    }
-    
-    // 2. Fallback to OpenGL extensions
-    if (glewIsExtensionSupported("GL_NVX_gpu_memory_info")) {
-#define GL_GPU_MEM_INFO_DEDICATED_VIDMEM_NVX          0x9047
-#define GL_GPU_MEM_INFO_CURRENT_AVAILABLE_VIDMEM_NVX  0x9049
-        GLint dedicatedMemKb = 0;
-        GLint curAvailKb = 0;
-        glGetIntegerv(GL_GPU_MEM_INFO_DEDICATED_VIDMEM_NVX, &dedicatedMemKb);
-        glGetIntegerv(GL_GPU_MEM_INFO_CURRENT_AVAILABLE_VIDMEM_NVX, &curAvailKb);
-        
-        std::stringstream ss;
-        ss << "NV: " << (dedicatedMemKb - curAvailKb) / 1024 << " / " << dedicatedMemKb / 1024 << " MB";
-        m_gpuInfo = ss.str();
-    } else if (glewIsExtensionSupported("GL_ATI_meminfo")) {
-#define GL_VBO_FREE_MEMORY_ATI                     0x87FB
-        GLint freeMem[4]; 
-        glGetIntegerv(GL_VBO_FREE_MEMORY_ATI, freeMem);
-        std::stringstream ss;
-        ss << "ATI Free: " << freeMem[0] / 1024 << " MB";
-        m_gpuInfo = ss.str();
-    }
+    m_lastProcessTicks = (TicksType)totalProcessTicks;
+    m_lastTotalTicks = (TicksType)totalSystemTicks;
+    m_gpuInfo = "N/A (Linux)";
 }
+#endif

@@ -46,6 +46,11 @@ void ConfigLogic::saveSettings(const AppState& state) {
     config.bgPath = state.backgroundImagePath;
     config.bgPulse = state.bgPulseIntensity;
     config.bgShake = state.shakeIntensity;
+    config.shakeTilt = state.shakeTiltIntensity;
+    config.shakeZoom = state.shakeZoomIntensity;
+    config.songTitle = state.songTitle;
+    config.artistName = state.artistName;
+    config.showSongInfo = state.showSongInfo;
     
     config.vidWidth = state.videoSettings.width;
     config.vidHeight = state.videoSettings.height;
@@ -112,6 +117,11 @@ void ConfigLogic::loadSettings(AppState& state) {
         state.backgroundImagePath[sizeof(state.backgroundImagePath) - 1] = '\0';
         state.bgPulseIntensity = config.bgPulse;
         state.shakeIntensity = config.bgShake;
+        state.shakeTiltIntensity = config.shakeTilt;
+        state.shakeZoomIntensity = config.shakeZoom;
+        strncpy(state.songTitle, config.songTitle.c_str(), sizeof(state.songTitle));
+        strncpy(state.artistName, config.artistName.c_str(), sizeof(state.artistName));
+        state.showSongInfo = config.showSongInfo;
 
         state.videoSettings.width = config.vidWidth;
         state.videoSettings.height = config.vidHeight;

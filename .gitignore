@@ -6,6 +6,7 @@ build_plasma_release/
 release_assets/
 bin/
 lib/
+out/
 
 # CMake
 CMakeCache.txt
@@ -33,6 +34,7 @@ PlasmoidVisualizer
 .idea/
 *.swp
 *.swo
+.vs/
 
 # OS files
 .DS_Store
@@ -40,3 +42,8 @@ Thumbs.db
 
 # ImGui
 imgui.ini
+
+# other
+glew*
+glfw*
+glm*

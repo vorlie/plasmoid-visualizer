@@ -458,9 +458,19 @@ void UIManager::renderZenKunSettings(AppState& state) {
             ImGui::InputText("Background Path", state.backgroundImagePath, sizeof(state.backgroundImagePath));
             ImGui::SameLine(); HelpMarker("Path to image file (JPG/PNG). Stretched to fill screen.");
             
-            ImGui::SliderFloat("Beat Pulse", &state.bgPulseIntensity, 0.0f, 0.5f);
-            ImGui::SliderFloat("Screen Shake", &state.shakeIntensity, 0.0f, 0.2f);
+            ImGui::Separator();
+            ImGui::Text("Song Information");
+            ImGui::Checkbox("Draw Info Overlay", &state.showSongInfo);
+            ImGui::InputText("Title", state.songTitle, sizeof(state.songTitle));
+            ImGui::InputText("Artist", state.artistName, sizeof(state.artistName));
+
+            ImGui::Separator();
+            ImGui::Text("Beat Effects");
             ImGui::SliderFloat("Beat Sensitivity", &state.beatSensitivity, 1.0f, 2.0f);
+            ImGui::SliderFloat("Beat Pulse (Twitch)", &state.bgPulseIntensity, 0.0f, 0.5f);
+            ImGui::SliderFloat("Shake X/Y", &state.shakeIntensity, 0.0f, 0.2f);
+            ImGui::SliderFloat("Shake Tilt", &state.shakeTiltIntensity, 0.0f, 0.2f);
+            ImGui::SliderFloat("Shake Zoom", &state.shakeZoomIntensity, 0.0f, 0.2f);
         }
         ImGui::End();
     }

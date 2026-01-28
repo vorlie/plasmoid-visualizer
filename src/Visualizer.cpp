@@ -7,6 +7,8 @@
 
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
+#define STB_TRUETYPE_IMPLEMENTATION
+#include "stb_truetype.h"
 
 static std::string loadShaderSource(const std::string& path) {
     std::ifstream f(path);
@@ -22,6 +24,9 @@ static std::string loadShaderSource(const std::string& path) {
 Visualizer::Visualizer() {
     initShaders();
     initQuad();
+    
+    // Default font
+    loadFont("/usr/share/fonts/Adwaita/AdwaitaMono-Regular.ttf");
     glGenVertexArrays(1, &m_vao);
     glGenBuffers(1, &m_vbo);
 
@@ -169,7 +174,8 @@ void Visualizer::endPersistence() {
 void Visualizer::drawPersistenceBuffer() {
     if (!m_fbo) return;
     glUseProgram(m_quadShaderProgram);
-    glUniform1i(glGetUniformLocation(m_quadShaderProgram, "uUseTexture"), 1); 
+    glUniform1i(glGetUniformLocation(m_quadShaderProgram, "uUseTexture"), 1);
+    glUniform4f(glGetUniformLocation(m_quadShaderProgram, "uColor"), 1.0f, 1.0f, 1.0f, 1.0f);
     
     // Ensure scale/offset are reset for persistence buffer
     GLint scaleLoc = glGetUniformLocation(m_quadShaderProgram, "uScale");
@@ -213,29 +219,141 @@ void Visualizer::clearBackground() {
     }
 }
 
-void Visualizer::drawBackground(float scale, float shakeX, float shakeY) {
+void Visualizer::drawBackground(float scale, float shakeX, float shakeY, float rotation) {
     if (!m_bgTexture) return;
 
     glUseProgram(m_quadShaderProgram);
-    glUniform1i(glGetUniformLocation(m_quadShaderProgram, "uUseTexture"), 1);
+    glUniform2f(glGetUniformLocation(m_quadShaderProgram, "uSize"), scale, scale);
+    glUniform2f(glGetUniformLocation(m_quadShaderProgram, "uOffset"), shakeX, shakeY);
+    glUniform1f(glGetUniformLocation(m_quadShaderProgram, "uRotation"), rotation);
     
-    GLint colorLoc = glGetUniformLocation(m_quadShaderProgram, "uColor");
-    glUniform4f(colorLoc, 1.0f, 1.0f, 1.0f, 1.0f);
-
-    GLint scaleLoc = glGetUniformLocation(m_quadShaderProgram, "uScale");
-    GLint offsetLoc = glGetUniformLocation(m_quadShaderProgram, "uOffset");
-    
-    if (scaleLoc != -1) glUniform1f(scaleLoc, scale);
-    if (offsetLoc != -1) glUniform2f(offsetLoc, shakeX, shakeY);
-
     glBindVertexArray(m_quadVAO);
+    glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, m_bgTexture);
+    glUniform1i(glGetUniformLocation(m_quadShaderProgram, "uTexture"), 0);
+    glUniform1i(glGetUniformLocation(m_quadShaderProgram, "uUseTexture"), 1);
+    glUniform4f(glGetUniformLocation(m_quadShaderProgram, "uColor"), 1, 1, 1, 1);
+
+    glDrawArrays(GL_TRIANGLES, 0, 6);
+
+    // Reset for subsequent passes
+    glUniform2f(glGetUniformLocation(m_quadShaderProgram, "uSize"), 1.0f, 1.0f);
+    glUniform2f(glGetUniformLocation(m_quadShaderProgram, "uOffset"), 0.0f, 0.0f);
+    glUniform1f(glGetUniformLocation(m_quadShaderProgram, "uRotation"), 0.0f);
+
+    glUseProgram(0);
+}
+
+void Visualizer::drawRoundedRect(float x, float y, float w, float h, float radius, const float color[4]) {
+    glUseProgram(m_quadShaderProgram);
+    
+    glUniform2f(glGetUniformLocation(m_quadShaderProgram, "uSize"), w, h);
+    glUniform2f(glGetUniformLocation(m_quadShaderProgram, "uOffset"), x, y);
+    glUniform1f(glGetUniformLocation(m_quadShaderProgram, "uRotation"), 0.0f);
+    
+    glUniform1f(glGetUniformLocation(m_quadShaderProgram, "uCornerRadius"), radius);
+    glUniform1f(glGetUniformLocation(m_quadShaderProgram, "uAspect"), w / h);
+    glUniform1i(glGetUniformLocation(m_quadShaderProgram, "uUseTexture"), 0);
+    glUniform1i(glGetUniformLocation(m_quadShaderProgram, "uIsFont"), 0);
+    glUniform4f(glGetUniformLocation(m_quadShaderProgram, "uColor"), color[0], color[1], color[2], color[3]);
+    glUniform4f(glGetUniformLocation(m_quadShaderProgram, "uTexRect"), 0, 0, 1, 1);
+    
+    glBindVertexArray(m_quadVAO);
     glDrawArrays(GL_TRIANGLES, 0, 6);
     
-    // Reset uniforms for safety
-    if (scaleLoc != -1) glUniform1f(scaleLoc, 1.0f);
-    if (offsetLoc != -1) glUniform2f(offsetLoc, 0.0f, 0.0f);
-    
+    glUniform1f(glGetUniformLocation(m_quadShaderProgram, "uCornerRadius"), 0.0f);
+    glUseProgram(0);
+}
+
+bool Visualizer::loadFont(const std::string& path) {
+    std::ifstream file(path, std::ios::binary | std::ios::ate);
+    if (!file.is_open()) {
+        std::cerr << "Failed to open font file: " << path << std::endl;
+        return false;
+    }
+    size_t size = file.tellg();
+    file.seekg(0, std::ios::beg);
+    std::vector<unsigned char> buffer(size);
+    file.read((char*)buffer.data(), size);
+    file.close();
+
+    unsigned char* bitmap = new unsigned char[1024 * 1024];
+    stbtt_bakedchar baked[128]; // ASCII
+    stbtt_BakeFontBitmap(buffer.data(), 0, m_fontSize, bitmap, 1024, 1024, 32, 96, baked);
+
+    if (m_fontTexture) glDeleteTextures(1, &m_fontTexture);
+    glGenTextures(1, &m_fontTexture);
+    glBindTexture(GL_TEXTURE_2D, m_fontTexture);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1); // Crucial for font bitmaps
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RED, 1024, 1024, 0, GL_RED, GL_UNSIGNED_BYTE, bitmap);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+    for (int i = 0; i < 128; i++) {
+        if (i < 32 || i >= 128) continue;
+        stbtt_bakedchar& b = baked[i - 32];
+        m_chars[i].ax = b.xadvance;
+        m_chars[i].bw = (float)(b.x1 - b.x0);
+        m_chars[i].bh = (float)(b.y1 - b.y0);
+        m_chars[i].bl = b.xoff;
+        m_chars[i].bt = b.yoff;
+        m_chars[i].tx = b.x0 / 1024.0f;
+        m_chars[i].ty = b.y0 / 1024.0f;
+    }
+
+    delete[] bitmap;
+    return true;
+}
+
+void Visualizer::drawText(const std::string& text, float x, float y, float scale, const float color[4]) {
+    if (!m_fontTexture) return;
+
+    glUseProgram(m_quadShaderProgram);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, m_fontTexture);
+    glUniform1i(glGetUniformLocation(m_quadShaderProgram, "uTexture"), 0);
+    glUniform1i(glGetUniformLocation(m_quadShaderProgram, "uUseTexture"), 1);
+    glUniform4f(glGetUniformLocation(m_quadShaderProgram, "uColor"), color[0], color[1], color[2], color[3]);
+    glUniform1f(glGetUniformLocation(m_quadShaderProgram, "uCornerRadius"), 0.0f);
+    glUniform1f(glGetUniformLocation(m_quadShaderProgram, "uRotation"), 0.0f);
+
+    float curX = x;
+    float aspect = (float)m_viewportWidth / (float)m_viewportHeight;
+
+    for (char c : text) {
+        if (c < 32 || c >= 128) continue;
+        CharInfo& ch = m_chars[(int)c];
+
+        float w = (ch.bw / (float)m_viewportWidth) * scale;
+        float h = (ch.bh / (float)m_viewportHeight) * scale;
+        float ox = (ch.bl / (float)m_viewportWidth) * scale;
+        float oy = (-ch.bt / (float)m_viewportHeight) * scale; // bt is often negative (offset from baseline up)
+
+        // Adjust for quad.frag (which uses TexCoord for SDF/Texture mapping)
+        // Actually, for font rendering, we need the frag shader to use the R channel as Alpha.
+        // I should update quad.frag to handle alpha-only textures.
+        
+        glUniform2f(glGetUniformLocation(m_quadShaderProgram, "uSize"), w, h);
+        glUniform2f(glGetUniformLocation(m_quadShaderProgram, "uOffset"), curX + ox + w, y - oy - h);
+        
+        // STB bakes top-down, GL is bottom-up. Flip TW.y? 
+        // Let's use uTexRect to flip the mapping: [tx, ty, tw, -th]? No, that might discard.
+        // Better: [tx, ty + th, tw, -th]
+        float tw = ch.bw / 1024.0f;
+        float th = ch.bh / 1024.0f;
+        glUniform4f(glGetUniformLocation(m_quadShaderProgram, "uTexRect"), ch.tx, ch.ty + th, tw, -th);
+        glUniform1i(glGetUniformLocation(m_quadShaderProgram, "uIsFont"), 1);
+
+        glBindVertexArray(m_quadVAO);
+        glDrawArrays(GL_TRIANGLES, 0, 6);
+
+        curX += (ch.ax / (float)m_viewportWidth) * scale;
+    }
+
+    glUniform4f(glGetUniformLocation(m_quadShaderProgram, "uTexRect"), 0, 0, 1, 1);
+    glUniform1i(glGetUniformLocation(m_quadShaderProgram, "uIsFont"), 0);
     glUseProgram(0);
 }
 

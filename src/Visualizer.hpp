@@ -56,8 +56,11 @@ public:
     
     // Background Image & Zen-Kun Effects
     bool loadBackground(const std::string& path);
-    void drawBackground(float scale, float shakeX, float shakeY);
+    void drawBackground(float scale, float shakeX, float shakeY, float rotation);
     void clearBackground();
+    void drawRoundedRect(float x, float y, float w, float h, float radius, const float color[4]);
+    void drawText(const std::string& text, float x, float y, float scale, const float color[4]);
+    bool loadFont(const std::string& path);
 
 private:
     GLuint m_shaderProgram;
@@ -88,10 +91,16 @@ private:
     int m_fboHeight = 0;
     GLuint m_quadVAO = 0, m_quadVBO = 0;
 
-    // Background Image
     GLuint m_bgTexture = 0;
     int m_bgWidth = 0;
     int m_bgHeight = 0;
+
+    // Font Rendering
+    GLuint m_fontTexture = 0;
+    struct CharInfo {
+        float ax, ay, bl, bt, bw, bh, tx, ty;
+    } m_chars[128];
+    float m_fontSize = 48.0f;
 
     void initShaders();
     void initQuad();

@@ -1,6 +1,15 @@
-// Initial thought on SystemStats.hpp
 #pragma once
 #include <string>
+
+#ifdef _WIN32
+    #ifndef WIN32_LEAN_AND_MEAN
+        #define WIN32_LEAN_AND_MEAN
+    #endif
+    #ifndef NOMINMAX
+        #define NOMINMAX
+    #endif
+    #include <windows.h>
+#endif
 
 class SystemStats {
 public:
@@ -22,7 +31,18 @@ private:
     std::string m_gpuInfo = "N/A";
     
     // CPU calculation state
-    long m_lastProcessTicks = 0;
-    long m_lastTotalTicks = 0;
+#ifdef _WIN32
+    typedef FILETIME TicksType;
+#else
+    typedef long TicksType;
+#endif
+
+    TicksType m_lastProcessTicks = {};
+    TicksType m_lastTotalTicks = {};
+#ifdef _WIN32
+    TicksType m_lastIdleTicks = {};
+    TicksType m_lastKernelTicks = {};
+    TicksType m_lastUserTicks = {};
+#endif
     double m_updateTimer = 0.0;
 };

@@ -78,9 +78,13 @@ void RenderManager::renderToTarget(
             if (state.shakeEnergy > 0.001f) {
                 state.currentShakeX = ((float)rand() / RAND_MAX * 2.0f - 1.0f) * state.shakeIntensity * state.shakeEnergy;
                 state.currentShakeY = ((float)rand() / RAND_MAX * 2.0f - 1.0f) * state.shakeIntensity * state.shakeEnergy;
+                state.currentShakeTilt = ((float)rand() / RAND_MAX * 2.0f - 1.0f) * state.shakeTiltIntensity * state.shakeEnergy;
+                state.currentShakeZoom = ((float)rand() / RAND_MAX * 2.0f - 1.0f) * state.shakeZoomIntensity * state.shakeEnergy;
             } else {
                 state.currentShakeX = 0.0f;
                 state.currentShakeY = 0.0f;
+                state.currentShakeTilt = 0.0f;
+                state.currentShakeZoom = 0.0f;
             }
         }
 
@@ -104,7 +108,7 @@ void RenderManager::renderToTarget(
 
         // 0. BACKGROUND PASS
         if (state.zenKunModeEnabled) {
-            visualizer.drawBackground(state.currentBgScale, state.currentShakeX, state.currentShakeY);
+            visualizer.drawBackground(state.currentBgScale + state.currentShakeZoom, state.currentShakeX, state.currentShakeY, state.currentShakeTilt);
         }
 
         glEnable(GL_BLEND);
@@ -136,6 +140,29 @@ void RenderManager::renderToTarget(
 
         // 2.d Render non-persistent layers directly
         renderDirectLayers(state, audioEngine, analysisEngine, visualizer);
+
+        // 2.e Draw UI Overlay (Song Info)
+        if (state.showSongInfo) {
+            float textColor[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
+            float shadowColor[4] = { 0.0f, 0.0f, 0.0f, 0.5f };
+            float pillColor[4] = { 0.0f, 0.0f, 0.0f, 0.7f };
+            
+            std::string info = std::string(state.artistName) + " - " + std::string(state.songTitle);
+            
+            // Bottom Left Pill & Text
+            visualizer.drawRoundedRect(-0.7f, -0.85f, 0.55f, 0.1f, 0.05f, pillColor);
+            visualizer.drawText(info, -0.92f, -0.865f, 0.7f, textColor);
+            
+            // Bottom Right (Time)
+            float sec = audioEngine.getPosition();
+            int m = (int)sec / 60;
+            int s = (int)sec % 60;
+            char timeBuf[32];
+            snprintf(timeBuf, sizeof(timeBuf), "%d:%02d", m, s);
+            
+            visualizer.drawRoundedRect(0.85f, -0.85f, 0.12f, 0.1f, 0.05f, pillColor);
+            visualizer.drawText(timeBuf, 0.76f, -0.865f, 0.8f, textColor);
+        }
 
     } catch (const std::exception& e) {
         std::cerr << "EXCEPTION in RenderManager: " << e.what() << std::endl;
@@ -200,9 +227,13 @@ void RenderManager::renderOfflineFrame(
             if (state.shakeEnergy > 0.001f) {
                 state.currentShakeX = ((float)rand() / RAND_MAX * 2.0f - 1.0f) * state.shakeIntensity * state.shakeEnergy;
                 state.currentShakeY = ((float)rand() / RAND_MAX * 2.0f - 1.0f) * state.shakeIntensity * state.shakeEnergy;
+                state.currentShakeTilt = ((float)rand() / RAND_MAX * 2.0f - 1.0f) * state.shakeTiltIntensity * state.shakeEnergy;
+                state.currentShakeZoom = ((float)rand() / RAND_MAX * 2.0f - 1.0f) * state.shakeZoomIntensity * state.shakeEnergy;
             } else {
                 state.currentShakeX = 0.0f;
                 state.currentShakeY = 0.0f;
+                state.currentShakeTilt = 0.0f;
+                state.currentShakeZoom = 0.0f;
             }
         }
 
@@ -226,7 +257,7 @@ void RenderManager::renderOfflineFrame(
 
         // 0. BACKGROUND PASS
         if (state.zenKunModeEnabled) {
-            visualizer.drawBackground(state.currentBgScale, state.currentShakeX, state.currentShakeY);
+            visualizer.drawBackground(state.currentBgScale + state.currentShakeZoom, state.currentShakeX, state.currentShakeY, state.currentShakeTilt);
         }
 
         glEnable(GL_BLEND);
@@ -263,6 +294,26 @@ void RenderManager::renderOfflineFrame(
 
         // 2.d Render non-persistent layers directly
         renderDirectLayers(state, dummyAudio, analysisEngine, visualizer, &stereoBuffer, &monoBuffer);
+
+        // 2.e Draw UI Overlay (Song Info - Offline)
+        if (state.showSongInfo) {
+            float textColor[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
+            float pillColor[4] = { 0.0f, 0.0f, 0.0f, 0.7f };
+            
+            std::string info = std::string(state.artistName) + " - " + std::string(state.songTitle);
+            
+            float sec = (float)state.videoStatus.currentFrame / (float)state.videoSettings.fps;
+            int m = (int)sec / 60;
+            int s = (int)sec % 60;
+            char timeBuf[32];
+            snprintf(timeBuf, sizeof(timeBuf), "%d:%02d", m, s);
+
+            visualizer.drawRoundedRect(-0.7f, -0.85f, 0.55f, 0.1f, 0.05f, pillColor);
+            visualizer.drawText(info, -0.92f, -0.865f, 0.7f, textColor);
+
+            visualizer.drawRoundedRect(0.85f, -0.85f, 0.12f, 0.1f, 0.05f, pillColor);
+            visualizer.drawText(timeBuf, 0.76f, -0.865f, 0.8f, textColor);
+        }
 
     } catch (const std::exception& e) {
         std::cerr << "EXCEPTION in RenderManager (Offline): " << e.what() << std::endl;

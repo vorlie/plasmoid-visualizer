@@ -2,6 +2,7 @@
 #include "AudioEngine.hpp"
 #include <iostream>
 #include <algorithm>
+#include <cmath>
 
 AudioEngine::AudioEngine() {
 }

@@ -5,7 +5,13 @@
 VideoRenderManager::VideoRenderManager() {}
 
 VideoRenderManager::~VideoRenderManager() {
-    if (m_pipe) pclose(m_pipe);
+    if (m_pipe) {
+#ifdef _WIN32
+        _pclose(m_pipe);
+#else
+        pclose(m_pipe);
+#endif
+    }
 }
 
 std::string VideoRenderManager::buildFfmpegCommand(const AppState& state) {
@@ -20,8 +26,14 @@ std::string VideoRenderManager::buildFfmpegCommand(const AppState& state) {
             extraParams = "-rc vbr -cq " + std::to_string(s.crf) + " -preset slow";
             break;
         case 2: 
+#ifdef _WIN32
+            // VAAPI is Linux-only, fallback to x264 or similar
+            codec = "libx264";
+            extraParams = "-crf " + std::to_string(s.crf) + " -preset veryslow";
+#else
             codec = "h264_vaapi"; 
             extraParams = "-vaapi_device /dev/dri/renderD128 -qp " + std::to_string(s.crf);
+#endif
             break;
         case 3: 
             codec = "h264_amf"; 
@@ -67,7 +79,11 @@ void VideoRenderManager::startRender(AppState& state, AudioEngine& audioEngine) 
     std::string cmd = buildFfmpegCommand(state);
     std::cout << "Starting FFmpeg render: " << cmd << std::endl;
     
+#ifdef _WIN32
+    m_pipe = _popen(cmd.c_str(), "wb");
+#else
     m_pipe = popen(cmd.c_str(), "w");
+#endif
     if (!m_pipe) {
         state.videoStatus.isRendering = false;
         state.videoStatus.errorMessage = "Failed to open FFmpeg pipe.";
@@ -89,7 +105,11 @@ void VideoRenderManager::update(
     if (!state.videoStatus.isRendering || !m_pipe) return;
 
     if (state.videoStatus.currentFrame >= state.videoStatus.totalFrames) {
+#ifdef _WIN32
+        _pclose(m_pipe);
+#else
         pclose(m_pipe);
+#endif
         m_pipe = nullptr;
         state.videoStatus.isRendering = false;
         state.statusMessage = "Video rendering complete!";
@@ -132,7 +152,11 @@ void VideoRenderManager::update(
 
 void VideoRenderManager::cancelRender(AppState& state) {
     if (m_pipe) {
+#ifdef _WIN32
+        _pclose(m_pipe);
+#else
         pclose(m_pipe);
+#endif
         m_pipe = nullptr;
     }
     state.videoStatus.isRendering = false;

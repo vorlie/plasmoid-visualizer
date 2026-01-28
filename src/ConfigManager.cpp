@@ -38,7 +38,12 @@ bool ConfigManager::save(const std::string& filename, const AppConfig& config) {
         {"zen_kun_enabled", config.zenKunEnabled},
         {"bg_path", config.bgPath},
         {"bg_pulse", config.bgPulse},
-        {"bg_shake", config.bgShake}
+        {"bg_shake", config.bgShake},
+        {"bg_shake_tilt", config.shakeTilt},
+        {"bg_shake_zoom", config.shakeZoom},
+        {"song_title", config.songTitle},
+        {"song_artist", config.artistName},
+        {"show_song_info", config.showSongInfo}
     });
 
     toml::array layersArray;
@@ -115,6 +120,11 @@ bool ConfigManager::load(const std::string& filename, AppConfig& config) {
             config.bgPath = (*app)["bg_path"].value_or("");
             config.bgPulse = (*app)["bg_pulse"].value_or(0.05f);
             config.bgShake = (*app)["bg_shake"].value_or(0.02f);
+            config.shakeTilt = (*app)["bg_shake_tilt"].value_or(0.05f);
+            config.shakeZoom = (*app)["bg_shake_zoom"].value_or(0.02f);
+            config.songTitle = (*app)["song_title"].value_or("Song Title");
+            config.artistName = (*app)["song_artist"].value_or("Artist Name");
+            config.showSongInfo = (*app)["show_song_info"].value_or(true);
         }
 
         if (auto layers = tbl["layers"].as_array()) {
@@ -170,9 +180,16 @@ bool ConfigManager::load(const std::string& filename, AppConfig& config) {
 }
 
 std::string ConfigManager::getConfigPath() {
+#ifdef _WIN32
+    const char* appData = std::getenv("APPDATA");
+    if (!appData) return "config.toml";
+    fs::path configDir = fs::path(appData) / "PlasmoidVisualizerStd";
+    return (configDir / "config.toml").string();
+#else
     const char* home = std::getenv("HOME");
     if (!home) return "config.toml"; // Fallback
 
     fs::path configDir = fs::path(home) / ".config" / "PlasmoidVisualizerStd";
     return (configDir / "config.toml").string();
+#endif
 }
