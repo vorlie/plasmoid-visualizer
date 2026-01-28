@@ -178,9 +178,9 @@ void Visualizer::drawPersistenceBuffer() {
     glUniform4f(glGetUniformLocation(m_quadShaderProgram, "uColor"), 1.0f, 1.0f, 1.0f, 1.0f);
     
     // Ensure scale/offset are reset for persistence buffer
-    GLint scaleLoc = glGetUniformLocation(m_quadShaderProgram, "uScale");
+    GLint sizeLoc = glGetUniformLocation(m_quadShaderProgram, "uSize");
     GLint offsetLoc = glGetUniformLocation(m_quadShaderProgram, "uOffset");
-    if (scaleLoc != -1) glUniform1f(scaleLoc, 1.0f);
+    if (sizeLoc != -1) glUniform2f(sizeLoc, 1.0f, 1.0f);
     if (offsetLoc != -1) glUniform2f(offsetLoc, 0.0f, 0.0f);
 
     glBindVertexArray(m_quadVAO);
@@ -388,9 +388,9 @@ void Visualizer::drawFullscreenDimmer(float decayRate) {
     glUniform4f(colorLoc, 0.0f, 0.0f, 0.0f, decayRate);
     glUniform1i(glGetUniformLocation(m_quadShaderProgram, "uUseTexture"), 0); // Tell shader not to use texture
 
-    GLint scaleLoc = glGetUniformLocation(m_quadShaderProgram, "uScale");
+    GLint sizeLoc = glGetUniformLocation(m_quadShaderProgram, "uSize"); // FIXED: from uScale to uSize
     GLint offsetLoc = glGetUniformLocation(m_quadShaderProgram, "uOffset");
-    if (scaleLoc != -1) glUniform1f(scaleLoc, 1.0f);
+    if (sizeLoc != -1) glUniform2f(sizeLoc, 1.0f, 1.0f); // Make sure it covers the screen!
     if (offsetLoc != -1) glUniform2f(offsetLoc, 0.0f, 0.0f);
 
     glBindVertexArray(m_quadVAO);

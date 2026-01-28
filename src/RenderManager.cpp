@@ -51,6 +51,10 @@ void RenderManager::renderToTarget(
     try {
         if (!isOffline) {
             audioEngine.getBuffer(audioBuffer, 8192);
+            // Apply global gain
+            if (state.globalGain != 1.0f) {
+                for (auto& s : audioBuffer) s *= state.globalGain;
+            }
             analysisEngine.computeFFT(audioBuffer);
         }
         
@@ -100,7 +104,9 @@ void RenderManager::renderToTarget(
         }
 
         if (usePersistence) {
-            visualizer.drawFullscreenDimmer(state.phosphorDecay); 
+            float decayFactor = state.phosphorDecay * (deltaTime * 60.0f);
+            if (decayFactor > 1.0f) decayFactor = 1.0f;
+            visualizer.drawFullscreenDimmer(decayFactor); 
         } else {
             glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
             glClear(GL_COLOR_BUFFER_BIT);
@@ -338,6 +344,9 @@ void RenderManager::renderPersistentLayers(
             stereo = *offlineStereo;
         } else {
             audioEngine.getStereoBuffer(stereo, 8192);
+            if (state.globalGain != 1.0f) {
+                for (auto& s : stereo) s *= state.globalGain;
+            }
         }
         
         size_t triggerOffset = 0;
@@ -396,6 +405,9 @@ void RenderManager::renderDirectLayers(
                 }
             } else {
                 audioEngine.getChannelBuffer(channelBuffer, 8192, (int)layer.channel);
+                if (state.globalGain != 1.0f) {
+                    for (auto& s : channelBuffer) s *= state.globalGain;
+                }
             }
             
             size_t triggerOffset = 0;
@@ -412,6 +424,9 @@ void RenderManager::renderDirectLayers(
                 channelBuffer = *offlineMono;
             } else {
                 audioEngine.getChannelBuffer(channelBuffer, 8192, (int)layer.channel);
+                if (state.globalGain != 1.0f) {
+                    for (auto& s : channelBuffer) s *= state.globalGain;
+                }
             }
             analysisEngine.computeFFT(channelBuffer);
             renderData = analysisEngine.computeLayerMagnitudes(layer.config, layer.prevMagnitudes);

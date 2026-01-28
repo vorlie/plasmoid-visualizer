@@ -26,6 +26,7 @@ bool ConfigManager::save(const std::string& filename, const AppConfig& config) {
         {"particle_size", config.particleSize},
         {"particle_color", toml::array{config.particleColor[0], config.particleColor[1], config.particleColor[2], config.particleColor[3]}},
         {"phosphor_decay", config.phosphorDecay},
+        {"global_gain", config.globalGain},
         {"audio_mode", config.audioMode},
         {"capture_device_name", config.captureDeviceName},
         {"use_specific_capture_device", config.useSpecificCaptureDevice},
@@ -107,6 +108,7 @@ bool ConfigManager::load(const std::string& filename, AppConfig& config) {
                 }
             }
             config.phosphorDecay = (*app)["phosphor_decay"].value_or(0.1f);
+            config.globalGain = (*app)["global_gain"].value_or(1.0f);
             config.audioMode = (*app)["audio_mode"].value_or(0);
             config.captureDeviceName = (*app)["capture_device_name"].value_or("");
             config.useSpecificCaptureDevice = (*app)["use_specific_capture_device"].value_or(false);

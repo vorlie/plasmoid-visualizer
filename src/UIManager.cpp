@@ -439,9 +439,13 @@ void UIManager::renderGlobalSettings(AppState& state) {
     if (state.showGlobalSettings) {
         ImGui::Begin("Global Settings", &state.showGlobalSettings);
         ImGui::Text("Persistence / CRT Effects");
-        ImGui::SliderFloat("Phosphor Decay", &state.phosphorDecay, 0.01f, 0.5f);
-        ImGui::SameLine();
+        ImGui::SliderFloat("Phosphor Decay", &state.phosphorDecay, 0.0f, 1.0f);
+        ImGui::SameLine(); HelpMarker("1.0 = Instant clear (No trails). 0.01 = Long trails.");
         if (ImGui::Button("Reset Decay")) state.phosphorDecay = 0.1f;
+        
+        ImGui::Text("Audio Input");
+        ImGui::SliderFloat("Global Gain (Pre-Amp)", &state.globalGain, 0.1f, 100.0f);
+        ImGui::SameLine(); HelpMarker("Boosts input signal level. Useful for Windows WASAPI which captures at lower levels.");
         
         ImGui::Separator();
         if (ImGui::Button("Background Settings")) state.showZenKunSettings = true;

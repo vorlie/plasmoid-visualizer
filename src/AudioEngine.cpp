@@ -387,6 +387,7 @@ bool AudioEngine::initTestTone() {
     }
     m_isDeviceInitialized = true;
     m_isCaptureMode = false;
+    m_testTone = true;
     return true;
 }
 

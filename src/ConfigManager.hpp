@@ -46,6 +46,7 @@ struct AppConfig {
     float particleSize;
     float particleColor[4];
     float phosphorDecay = 0.1f;
+    float globalGain = 1.0f;
 
     // Zen-Kun
     bool zenKunEnabled = false;

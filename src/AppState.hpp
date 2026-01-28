@@ -116,6 +116,9 @@ struct AppState {
     bool showAudioSettings = true;
     bool showZenKunSettings = false;
 
+    // Audio Processing
+    float globalGain = 1.0f;
+
     int selectedLayerIdx = 0;
 
     // Video Rendering
