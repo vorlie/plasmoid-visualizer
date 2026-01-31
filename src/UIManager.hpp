@@ -9,6 +9,7 @@
 #include "imgui.h"
 
 class VideoRenderManager;
+struct GLFWwindow;
 
 class UIManager {
 public:
@@ -18,7 +19,8 @@ public:
         ParticleSystem& particleSystem,
         OscMusicEditor& oscMusicEditor,
         SystemStats& systemStats,
-        VideoRenderManager& videoRenderManager
+        VideoRenderManager& videoRenderManager,
+        GLFWwindow* window
     );
 
 private:
@@ -29,7 +31,7 @@ private:
     void renderLayerEditor(AppState& state);
     void renderPlaylist(AppState& state, AudioEngine& audioEngine);
     void renderParticleSettings(AppState& state, ParticleSystem& particleSystem);
-    void renderDebugInfo(AppState& state, SystemStats& systemStats);
+    void renderDebugInfo(AppState& state, SystemStats& systemStats, AudioEngine& audioEngine, GLFWwindow* window);
     void renderGlobalSettings(AppState& state);
     void renderStatusMessage(AppState& state);
 };

@@ -37,7 +37,8 @@ std::string VideoRenderManager::buildFfmpegCommand(const AppState& state) {
             break;
         case 3: 
             codec = "h264_amf"; 
-            extraParams = "-rc vbr -qp_cb " + std::to_string(s.crf) + " -qp_cr " + std::to_string(s.crf);
+            // AMF uses qp_i/qp_p for quality control (CQP mode)
+            extraParams = "-rc cqp -qp_i " + std::to_string(s.crf) + " -qp_p " + std::to_string(s.crf) + " -quality quality";
             break;
         default: 
             codec = "libx264"; 

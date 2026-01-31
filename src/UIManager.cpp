@@ -3,6 +3,7 @@
 #include "RenderManager.hpp"
 #include "imgui_impl_glfw.h"
 #include "imgui_impl_opengl3.h"
+#include <GLFW/glfw3.h>
 #include <iostream>
 #include <cstring>
 #include <vector>
@@ -29,7 +30,8 @@ void UIManager::renderUI(
     ParticleSystem& particleSystem,
     OscMusicEditor& oscMusicEditor,
     SystemStats& systemStats,
-    VideoRenderManager& videoRenderManager
+    VideoRenderManager& videoRenderManager,
+    GLFWwindow* window
 ) {
     renderMainMenu(state, audioEngine);
     if (state.showAudioSettings) renderAudioSettings(state, audioEngine, oscMusicEditor, videoRenderManager);
@@ -38,7 +40,7 @@ void UIManager::renderUI(
     renderLayerEditor(state);
     renderPlaylist(state, audioEngine);
     renderParticleSettings(state, particleSystem);
-    renderDebugInfo(state, systemStats);
+    renderDebugInfo(state, systemStats, audioEngine, window);
     renderGlobalSettings(state);
     renderStatusMessage(state);
 }
@@ -419,18 +421,79 @@ void UIManager::renderParticleSettings(AppState& state, ParticleSystem& particle
     }
 }
 
-void UIManager::renderDebugInfo(AppState& state, SystemStats& systemStats) {
+void UIManager::renderDebugInfo(AppState& state, SystemStats& systemStats, AudioEngine& audioEngine, GLFWwindow* window) {
     if (state.showDebugInfo) {
         systemStats.update(ImGui::GetIO().DeltaTime);
         ImGui::Begin("Debug Info", &state.showDebugInfo);
+        
+        // === RENDERING STATS ===
+        ImGui::Text("=== Rendering ===");
         ImGui::Text("FPS: %.1f", ImGui::GetIO().Framerate);
-        ImGui::Text("Active Layers: %zu", state.layers.size());
-        ImGui::Separator(); ImGui::Text("System Resources:");
+        ImGui::Text("Frame Time: %.2f ms", systemStats.getFrameTimeMs());
+        ImGui::Text("  Min/Max/Avg: %.2f / %.2f / %.2f ms", 
+            systemStats.getMinFrameTimeMs(), 
+            systemStats.getMaxFrameTimeMs(), 
+            systemStats.getAvgFrameTimeMs());
+        
+        if (window) {
+            int width, height;
+            glfwGetFramebufferSize(window, &width, &height);
+            ImGui::Text("Resolution: %dx%d", width, height);
+        }
+        ImGui::Text("VSync: %s", state.enableVsync ? "ON" : "OFF");
+        if (!state.enableVsync) {
+            ImGui::Text("Target FPS: %d", state.targetFps);
+        }
+        
+        // === AUDIO STATS ===
+        ImGui::Separator();
+        ImGui::Text("=== Audio ===");
+        const char* modeNames[] = { "File", "Live Capture", "Test Tone", "Osc Music" };
+        ImGui::Text("Mode: %s", modeNames[(int)state.currentAudioMode]);
+        ImGui::Text("Sample Rate: %u Hz", audioEngine.getSampleRate());
+        ImGui::Text("Channels: %zu", audioEngine.getChannels());
+        ImGui::Text("Playing: %s", audioEngine.isPlaying() ? "YES" : "NO");
+        
+        if (state.currentAudioMode == AudioMode::File) {
+            float pos = audioEngine.getPosition();
+            float dur = audioEngine.getDuration();
+            ImGui::Text("Position: %.1f / %.1f s", pos, dur);
+            if (dur > 0) {
+                float progress = pos / dur;
+                ImGui::ProgressBar(progress, ImVec2(-1, 0), "");
+            }
+        } else if (state.currentAudioMode == AudioMode::Capture) {
+            if (state.useSpecificCaptureDevice) {
+                ImGui::Text("Device: %s", state.selectedCaptureDeviceName);
+            } else {
+                ImGui::Text("Device: Default");
+            }
+        }
+        
+        // === SYSTEM RESOURCES ===
+        ImGui::Separator();
+        ImGui::Text("=== System Resources ===");
+        ImGui::Text("CPU Cores: %d", systemStats.getCpuCoreCount());
         ImGui::Text("CPU (Global):  %.1f%%", systemStats.getGlobalCpuUsage());
         ImGui::Text("CPU (Process): %.1f%%", systemStats.getProcessCpuUsage());
         ImGui::Text("RAM Usage:     %.1f MB", systemStats.getRamUsageMB());
-        ImGui::Text("GPU Info:      %s", systemStats.getGpuInfo().c_str());
-        if (strlen(state.filePath) > 0) { ImGui::Separator(); ImGui::Text("Current File: %s", state.filePath); }
+        ImGui::Text("RAM Peak:      %.1f MB", systemStats.getPeakRamUsageMB());
+        
+        ImGui::Text("GPU: %s", systemStats.getGpuInfo().c_str());
+        if (systemStats.getGpuVramTotalMB() > 0) {
+            ImGui::Text("VRAM: %.0f / %.0f MB", 
+                systemStats.getGpuVramUsedMB(), 
+                systemStats.getGpuVramTotalMB());
+        }
+        
+        // === APPLICATION STATE ===
+        ImGui::Separator();
+        ImGui::Text("=== Application ===");
+        ImGui::Text("Active Layers: %zu", state.layers.size());
+        if (strlen(state.filePath) > 0) {
+            ImGui::Text("File: %s", state.filePath);
+        }
+        
         ImGui::End();
     }
 }

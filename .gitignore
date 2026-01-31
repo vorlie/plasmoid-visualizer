@@ -7,6 +7,8 @@ release_assets/
 bin/
 lib/
 out/
+dist/
+installer_output/
 
 # CMake
 CMakeCache.txt

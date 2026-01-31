@@ -106,10 +106,25 @@ if(EXISTS ${SHADER_SRC_DIR})
     add_dependencies(PlasmoidVisualizer copy_shaders)
 endif()
 
-# Install shaders with `make install` (installs the shaders directory under share/<project>)
+# Install rules for release packaging
+# The executable
+install(TARGETS PlasmoidVisualizer DESTINATION .)
+
+# Install shaders directory
 if(EXISTS ${SHADER_SRC_DIR})
-    install(DIRECTORY ${SHADER_SRC_DIR} DESTINATION share/${PROJECT_NAME})
+    install(DIRECTORY ${SHADER_SRC_DIR} DESTINATION .)
 endif()
+
+# Install GLEW DLL on Windows
+if(WIN32 AND EXISTS "${GLEW_MANUAL_DIR}")
+    set(GLEW_DLL_PATH "${GLEW_MANUAL_DIR}/bin/Release/x64/glew32.dll")
+    if(EXISTS "${GLEW_DLL_PATH}")
+        install(FILES "${GLEW_DLL_PATH}" DESTINATION .)
+    else()
+        message(WARNING "GLEW DLL not found at ${GLEW_DLL_PATH}")
+    endif()
+endif()
+
 
 # Link libraries
 if(WIN32)

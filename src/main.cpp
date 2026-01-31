@@ -106,6 +106,9 @@ int main() {
         int width, height;
         glfwGetFramebufferSize(window, &width, &height);
 
+        // Record frame time for statistics
+        systemStats.recordFrameTime(io.DeltaTime);
+
         // 1. Render Visualization Frame
         renderManager.renderFrame(
             state, 
@@ -141,7 +144,8 @@ int main() {
             particleSystem, 
             oscMusicEditor, 
             systemStats,
-            videoRenderManager
+            videoRenderManager,
+            window
         );
 
         ImGui::Render();

@@ -10,6 +10,36 @@
 SystemStats::SystemStats() {
     updateRam();
     updateCpu();
+    
+    // Get CPU core count
+    SYSTEM_INFO sysInfo;
+    GetSystemInfo(&sysInfo);
+    m_cpuCoreCount = sysInfo.dwNumberOfProcessors;
+}
+
+void SystemStats::recordFrameTime(float deltaTime) {
+    m_frameTimeMs = deltaTime * 1000.0f; // Convert to ms
+    
+    // Track min/max
+    if (m_frameTimeMs < m_minFrameTimeMs) m_minFrameTimeMs = m_frameTimeMs;
+    if (m_frameTimeMs > m_maxFrameTimeMs) m_maxFrameTimeMs = m_frameTimeMs;
+    
+    // Accumulate for average over 1 second
+    m_frameTimeAccum += deltaTime;
+    m_frameTimeSamples.push_back(m_frameTimeMs);
+    
+    if (m_frameTimeAccum >= 1.0) {
+        // Calculate average
+        float sum = 0.0f;
+        for (float sample : m_frameTimeSamples) sum += sample;
+        m_avgFrameTimeMs = m_frameTimeSamples.empty() ? 0.0f : sum / m_frameTimeSamples.size();
+        
+        // Reset min/max for next second
+        m_minFrameTimeMs = 999.0f;
+        m_maxFrameTimeMs = 0.0f;
+        m_frameTimeAccum = 0.0;
+        m_frameTimeSamples.clear();
+    }
 }
 
 void SystemStats::update(double dt) {
@@ -25,6 +55,9 @@ void SystemStats::updateRam() {
     PROCESS_MEMORY_COUNTERS_EX pmc;
     if (GetProcessMemoryInfo(GetCurrentProcess(), (PROCESS_MEMORY_COUNTERS*)&pmc, sizeof(pmc))) {
         m_ramUsageMB = pmc.WorkingSetSize / (1024.0f * 1024.0f);
+        if (m_ramUsageMB > m_peakRamUsageMB) {
+            m_peakRamUsageMB = m_ramUsageMB;
+        }
     }
 }
 
@@ -63,17 +96,36 @@ void SystemStats::updateCpu() {
         }
     }
 
-    // GPU Info - Minimal fallback on Windows
-    m_gpuInfo = "N/A (Win32)";
+    // GPU Info - Query VRAM if available
+    const GLubyte* renderer = glGetString(GL_RENDERER);
+    if (renderer) {
+        m_gpuInfo = std::string((const char*)renderer);
+    } else {
+        m_gpuInfo = "Unknown GPU";
+    }
     
-    // Check OpenGL extensions if context is valid (glew might be initialized by now)
+    // Try to get VRAM info from NVIDIA extension
     if (glewIsExtensionSupported("GL_NVX_gpu_memory_info")) {
         GLint dedicatedMemKb = 0;
         GLint curAvailKb = 0;
         glGetIntegerv(0x9047 /* GL_GPU_MEM_INFO_DEDICATED_VIDMEM_NVX */, &dedicatedMemKb);
         glGetIntegerv(0x9049 /* GL_GPU_MEM_INFO_CURRENT_AVAILABLE_VIDMEM_NVX */, &curAvailKb);
         
-        m_gpuInfo = "NV: " + std::to_string((dedicatedMemKb - curAvailKb) / 1024) + " / " + std::to_string(dedicatedMemKb / 1024) + " MB";
+        m_gpuVramTotalMB = dedicatedMemKb / 1024.0f;
+        m_gpuVramUsedMB = (dedicatedMemKb - curAvailKb) / 1024.0f;
+    }
+    // Try AMD extension
+    else if (glewIsExtensionSupported("GL_ATI_meminfo")) {
+        GLint memInfo[4] = {0};
+        glGetIntegerv(0x87FC /* GL_TEXTURE_FREE_MEMORY_ATI */, memInfo);
+        // memInfo[0] = total free memory in KB
+        // We can't get total VRAM easily from this, only free
+        m_gpuVramUsedMB = 0.0f; // Can't determine used from this extension
+        m_gpuVramTotalMB = 0.0f;
+    } else {
+        // No extension available
+        m_gpuVramUsedMB = 0.0f;
+        m_gpuVramTotalMB = 0.0f;
     }
 }
 
@@ -87,6 +139,34 @@ void SystemStats::updateCpu() {
 SystemStats::SystemStats() {
     updateRam();
     updateCpu();
+    
+    // Get CPU core count
+    m_cpuCoreCount = sysconf(_SC_NPROCESSORS_ONLN);
+}
+
+void SystemStats::recordFrameTime(float deltaTime) {
+    m_frameTimeMs = deltaTime * 1000.0f; // Convert to ms
+    
+    // Track min/max
+    if (m_frameTimeMs < m_minFrameTimeMs) m_minFrameTimeMs = m_frameTimeMs;
+    if (m_frameTimeMs > m_maxFrameTimeMs) m_maxFrameTimeMs = m_frameTimeMs;
+    
+    // Accumulate for average over 1 second
+    m_frameTimeAccum += deltaTime;
+    m_frameTimeSamples.push_back(m_frameTimeMs);
+    
+    if (m_frameTimeAccum >= 1.0) {
+        // Calculate average
+        float sum = 0.0f;
+        for (float sample : m_frameTimeSamples) sum += sample;
+        m_avgFrameTimeMs = m_frameTimeSamples.empty() ? 0.0f : sum / m_frameTimeSamples.size();
+        
+        // Reset min/max for next second
+        m_minFrameTimeMs = 999.0f;
+        m_maxFrameTimeMs = 0.0f;
+        m_frameTimeAccum = 0.0;
+        m_frameTimeSamples.clear();
+    }
 }
 
 void SystemStats::update(double dt) {
@@ -107,6 +187,9 @@ void SystemStats::updateRam() {
             long kb;
             ss >> kb;
             m_ramUsageMB = kb / 1024.0f;
+            if (m_ramUsageMB > m_peakRamUsageMB) {
+                m_peakRamUsageMB = m_ramUsageMB;
+            }
             break;
         }
     }
