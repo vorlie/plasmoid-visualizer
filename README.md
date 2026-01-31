@@ -22,7 +22,43 @@ A high-performance C++ Audio Visualizer suite featuring a powerful standalone Op
 
 ---
 
-## 1. Standalone Application 🖥️
+## 1. Windows (Standalone) 🪟
+The standalone editor runs natively on Windows 10/11 using OpenGL 3.3 and WASAPI.
+
+### Prerequisites
+- **Visual Studio 2022 or newer** (tested on VS 2026) with "Desktop development with C++"
+- **CMake 3.20+**
+- **Git**
+- **Dependencies** (Extract to project root):
+  - [GLEW 2.3.1](https://github.com/nigels-com/glew/releases/tag/glew-2.3.1)
+  - [GLFW 3.4 (64-bit Windows Binary)](https://github.com/glfw/glfw/releases/tag/3.4)
+  - [GLM 1.0.3](https://github.com/g-truc/glm/releases/tag/1.0.3)
+
+### Build and Run
+```cmd
+:: Clone the repository
+git clone https://github.com/vorlie/plasmoid-visualizer.git
+cd plasmoid-visualizer
+
+:: Generate Project Files
+cmake -B build
+
+:: Build Release Configuration
+cmake --build build --config Release
+
+:: Run the application
+.\build\Release\PlasmoidVisualizer.exe
+```
+
+### Installer (Optional)
+To build the `.exe` installer (requires **Inno Setup 6**):
+```cmd
+.\build_installer.bat
+```
+
+---
+
+## 2. Linux (Standalone) 🐧
 The standalone editor is the core of the project, built for deep customization and real-time tweaks.
 
 ### Build and Run
@@ -40,7 +76,7 @@ make -j$(nproc)
 
 ---
 
-## 2. KDE Plasma 6 Widget 🐧
+## 3. KDE Plasma 6 Widget 🐧
 The native widget brings high-performance visualization directly to your desktop or panel.
 
 ### Installation
