@@ -138,7 +138,7 @@ This project is built upon excellence:
 ---
 
 ## License
-Licensed under the **MIT License**. Check out [RELEASE_NOTES.md](RELEASE_NOTES.md) for the latest v1.4 changelog.
+Licensed under the **MIT License**.
 
 ---
 Made with ❤️ for the Linux Audio community. Enjoy!
