@@ -15,8 +15,8 @@ A high-performance C++ Audio Visualizer suite featuring a powerful standalone Op
 
 ## 🗺️ Documentation
 - **[TECHNICAL_FAQ.md](TECHNICAL_FAQ.md)**: Deep dive into the architecture, optimizations, and visual science of the project.
-- **[RELEASE_NOTES.md](RELEASE_NOTES.md)**: Latest changes and version history.
 - **Config Persistence**: Automatically saves your setup to `~/.config/PlasmoidVisualizerStd/config.toml`.
+  - or `C:\Users\<username>\AppData\Roaming\PlasmoidVisualizerStd\config.toml` on Windows
 - **Oscilloscope Music Editor**: Write custom mathematical expressions `X(t)` and `Y(t)` to generate visuals.
 - **FBO Rendering**: Isolated effect accumulation for professional visuals without UI ghosting.
 
