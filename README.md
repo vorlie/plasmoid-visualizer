@@ -138,7 +138,7 @@ This project is built upon excellence:
 ---
 
 ## License
-Licensed under the **MIT License**.
+Licensed under the **MIT [License](LICENSE)**.
 
 ---
 Made with ❤️ for the Linux Audio community. Enjoy!
