@@ -12,7 +12,7 @@ public:
     ~AudioEngine();
 
     bool loadFile(const std::string& filePath);
-    bool startCapture(const ma_device_id* pID = nullptr);
+    bool startCapture(const ma_device_id* pID = nullptr, ma_device_type type = ma_device_type_capture);
     void play();
     void pause();
     void stop();
@@ -43,7 +43,7 @@ public:
         ma_device_id id;
         std::string name;
         bool isDefault;
-        bool isCapture;
+        ma_device_type type;
     };
     std::vector<DeviceInfo> getAvailableDevices(bool capture = false);
     void setDevice(const ma_device_id* pID);

@@ -79,13 +79,15 @@ void UIManager::renderAudioSettings(AppState& state, AudioEngine& audioEngine, O
                 if (state.useSpecificCaptureDevice) {
                     auto devices = audioEngine.getAvailableDevices(true);
                     ma_device_id* pID = nullptr;
+                    ma_device_type type = ma_device_type_capture;
                     for (auto& d : devices) {
                         if (d.name == state.selectedCaptureDeviceName) {
                             pID = &d.id;
+                            type = d.type;
                             break;
                         }
                     }
-                    audioEngine.startCapture(pID);
+                    audioEngine.startCapture(pID, type);
                 } else {
                     audioEngine.startCapture(nullptr);
                 }
@@ -125,7 +127,7 @@ void UIManager::renderAudioSettings(AppState& state, AudioEngine& audioEngine, O
                     selectedDeviceIdx = comboIdx - 1;
                     state.useSpecificCaptureDevice = true;
                     strncpy(state.selectedCaptureDeviceName, devices[selectedDeviceIdx].name.c_str(), sizeof(state.selectedCaptureDeviceName));
-                    audioEngine.startCapture(&devices[selectedDeviceIdx].id);
+                    audioEngine.startCapture(&devices[selectedDeviceIdx].id, devices[selectedDeviceIdx].type);
                 }
             }
 
@@ -283,23 +285,38 @@ void UIManager::renderLayerManager(AppState& state) {
         for (int i = 0; i < (int)state.layers.size(); i++) {
             ImGui::PushID(i);
             
-            // Reordering buttons
-            if (ImGui::Button("^") && i > 0) {
-                std::swap(state.layers[i], state.layers[i-1]);
-                if (state.selectedLayerIdx == i) state.selectedLayerIdx = i - 1;
-                else if (state.selectedLayerIdx == i - 1) state.selectedLayerIdx = i;
-            }
+            // 1. Visibility toggle (Left) - Always visible and easy to click
+            ImGui::Checkbox("##visible", &state.layers[i].visible);
             ImGui::SameLine();
-            if (ImGui::Button("v") && i < (int)state.layers.size() - 1) {
-                std::swap(state.layers[i], state.layers[i+1]);
-                if (state.selectedLayerIdx == i) state.selectedLayerIdx = i + 1;
-                else if (state.selectedLayerIdx == i + 1) state.selectedLayerIdx = i;
+
+            // 2. Layer name / selection (Center)
+            // Reserve space for reordering buttons on the right
+            float btnSize = ImGui::GetFrameHeight();
+            float spacing = ImGui::GetStyle().ItemSpacing.x;
+            float reservedWidth = (btnSize + spacing) * 2 + spacing;
+            
+            if (ImGui::Selectable(state.layers[i].name.c_str(), state.selectedLayerIdx == i, 0, ImVec2(ImGui::GetContentRegionAvail().x - reservedWidth, 0))) {
+                state.selectedLayerIdx = i;
             }
             ImGui::SameLine();
 
-            if (ImGui::Selectable(state.layers[i].name.c_str(), state.selectedLayerIdx == i)) state.selectedLayerIdx = i;
-            ImGui::SameLine(ImGui::GetWindowWidth() - 50);
-            ImGui::Checkbox("##visible", &state.layers[i].visible);
+            // 3. Reordering buttons (Right)
+            if (ImGui::Button("^", ImVec2(btnSize, 0))) {
+                if (i > 0) {
+                    std::swap(state.layers[i], state.layers[i-1]);
+                    if (state.selectedLayerIdx == i) state.selectedLayerIdx = i - 1;
+                    else if (state.selectedLayerIdx == i - 1) state.selectedLayerIdx = i;
+                }
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("v", ImVec2(btnSize, 0))) {
+                if (i < (int)state.layers.size() - 1) {
+                    std::swap(state.layers[i], state.layers[i+1]);
+                    if (state.selectedLayerIdx == i) state.selectedLayerIdx = i + 1;
+                    else if (state.selectedLayerIdx == i + 1) state.selectedLayerIdx = i;
+                }
+            }
+            
             ImGui::PopID();
         }
         if (state.layers.size() > 1) {

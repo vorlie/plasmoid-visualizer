@@ -333,19 +333,21 @@ bool AudioEngine::loadFile(const std::string& filePath) {
     return true;
 }
 
-bool AudioEngine::startCapture(const ma_device_id* pID) {
+bool AudioEngine::startCapture(const ma_device_id* pID, ma_device_type type) {
     resetDevice(); // Clean up previous device (playback or capture)
 
-    ma_device_config deviceConfig = ma_device_config_init(ma_device_type_capture);
+    ma_device_config deviceConfig = ma_device_config_init(type);
+    if (type == ma_device_type_loopback) {
+        deviceConfig.playback.pDeviceID = (ma_device_id*)pID;
+    } else {
+        deviceConfig.capture.pDeviceID = (ma_device_id*)pID;
+    }
+    
     deviceConfig.capture.format = ma_format_f32;
     deviceConfig.capture.channels = 2;
     deviceConfig.sampleRate = 48000;
     deviceConfig.dataCallback = dataCallback;
     deviceConfig.pUserData = this;
-
-    if (pID) {
-        deviceConfig.capture.pDeviceID = (ma_device_id*)pID;
-    }
 
     if (ma_device_init(NULL, &deviceConfig, &m_device) != MA_SUCCESS) {
         std::cerr << "Failed to initialize capture device" << std::endl;
@@ -539,11 +541,18 @@ std::vector<AudioEngine::DeviceInfo> AudioEngine::getAvailableDevices(bool captu
 
     if (capture) {
         for (ma_uint32 i = 0; i < captureCount; ++i) {
-            devices.push_back({ pCaptureInfos[i].id, pCaptureInfos[i].name, (bool)pCaptureInfos[i].isDefault, true });
+            devices.push_back({ pCaptureInfos[i].id, pCaptureInfos[i].name, (bool)pCaptureInfos[i].isDefault, ma_device_type_capture });
         }
+#ifdef _WIN32
+        // On Windows, also include playback devices as loopback capture sources
+        for (ma_uint32 i = 0; i < playbackCount; ++i) {
+            std::string name = "[Loopback] " + std::string(pPlaybackInfos[i].name);
+            devices.push_back({ pPlaybackInfos[i].id, name, false, ma_device_type_loopback });
+        }
+#endif
     } else {
         for (ma_uint32 i = 0; i < playbackCount; ++i) {
-            devices.push_back({ pPlaybackInfos[i].id, pPlaybackInfos[i].name, (bool)pPlaybackInfos[i].isDefault, false });
+            devices.push_back({ pPlaybackInfos[i].id, pPlaybackInfos[i].name, (bool)pPlaybackInfos[i].isDefault, ma_device_type_playback });
         }
     }
 

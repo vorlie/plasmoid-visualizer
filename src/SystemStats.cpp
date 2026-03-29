@@ -130,7 +130,6 @@ void SystemStats::updateCpu() {
 }
 
 #else
-// ... (Linux Implementation remains isolated)
 #include <unistd.h>
 #include <vector>
 #include <fstream>

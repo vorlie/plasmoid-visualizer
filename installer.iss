@@ -2,7 +2,7 @@
 ; This script creates a Windows installer for the application
 
 #define AppName "Plasmoid Visualizer"
-#define AppVersion "1.0.2"
+#define AppVersion "1.0.4"
 #define AppPublisher "Vorlie"
 #define AppURL "https://github.com/vorlie/plasmoid-visualizer"
 #define AppExeName "PlasmoidVisualizer.exe"
@@ -28,8 +28,8 @@ Compression=lzma
 SolidCompression=yes
 WizardStyle=modern
 PrivilegesRequired=admin
-ArchitecturesAllowed=x64
-ArchitecturesInstallIn64BitMode=x64
+ArchitecturesAllowed=x64compatible
+ArchitecturesInstallIn64BitMode=x64compatible
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
