@@ -244,7 +244,42 @@ void UIManager::renderAudioSettings(AppState& state, AudioEngine& audioEngine, O
             if (ImGui::SliderFloat("Base Frequency (f)", &baseFreq, 20.0f, 2000.0f, "%.1f Hz")) oscMusicEditor.setBaseFrequency(baseFreq);
             ImGui::SliderFloat("Duration (s)", &duration, 0.5f, 10.0f);
             
-            if (!oscMusicEditor.isValid()) ImGui::TextColored(ImVec4(1, 0, 0, 1), "Error: %s", oscMusicEditor.getErrorMessage().c_str());
+            if (!oscMusicEditor.isValid()) {
+                ImGui::TextColored(ImVec4(1, 0, 0, 1), "Error: %s", oscMusicEditor.getErrorMessage().c_str());
+            } else {
+                // Real-time Preview Canvas
+                ImGui::Text("Live Preview");
+                ImVec2 canvasSize = ImVec2(ImGui::GetContentRegionAvail().x, 200);
+                ImVec2 canvasPos = ImGui::GetCursorScreenPos();
+                ImDrawList* drawList = ImGui::GetWindowDrawList();
+                drawList->AddRectFilled(canvasPos, ImVec2(canvasPos.x + canvasSize.x, canvasPos.y + canvasSize.y), IM_COL32(20, 20, 20, 255));
+                drawList->AddRect(canvasPos, ImVec2(canvasPos.x + canvasSize.x, canvasPos.y + canvasSize.y), IM_COL32(100, 100, 100, 255));
+                
+                // Draw a few cycles of the expression
+                int samples = 512;
+                float timeRange = 1.0f / baseFreq * 2.0f; // Show 2 cycles
+                auto previewPoints = oscMusicEditor.getPreviewPoints(samples, timeRange);
+                
+                if (!previewPoints.empty()) {
+                    for (int i = 0; i < samples - 1; ++i) {
+                        ImVec2 p1 = ImVec2(
+                            canvasPos.x + (previewPoints[i*2] + 1.0f) * 0.5f * canvasSize.x,
+                            canvasPos.y + (previewPoints[i*2+1] + 1.0f) * 0.5f * canvasSize.y
+                        );
+                        ImVec2 p2 = ImVec2(
+                            canvasPos.x + (previewPoints[(i+1)*2] + 1.0f) * 0.5f * canvasSize.x,
+                            canvasPos.y + (previewPoints[(i+1)*2+1] + 1.0f) * 0.5f * canvasSize.y
+                        );
+                        drawList->AddLine(p1, p2, IM_COL32(0, 200, 255, 200), 1.5f);
+                    }
+                    // Current "head" of the trace
+                    ImVec2 head = ImVec2(
+                        canvasPos.x + (previewPoints[0] + 1.0f) * 0.5f * canvasSize.x,
+                        canvasPos.y + (previewPoints[1] + 1.0f) * 0.5f * canvasSize.y
+                    );
+                    drawList->AddCircleFilled(head, 3.0f, IM_COL32(255, 255, 255, 255));
+                }
+            }
 
             if (ImGui::Button("Preview")) {
                 if (oscMusicEditor.isValid()) {
@@ -363,10 +398,51 @@ void UIManager::renderLayerEditor(AppState& state) {
             ImGui::SliderFloat("Time Scale", &layer.timeScale, 0.2f, 2.0f);
         
         if (layer.shape == VisualizerShape::OscilloscopeXY || layer.shape == VisualizerShape::OscilloscopeXY_Clean) {
-            ImGui::SliderFloat("Rotation", &layer.rotation, 0.0f, 360.0f);
-            ImGui::Checkbox("Flip Horizontal", &layer.flipX);
-            ImGui::Checkbox("Flip Vertical", &layer.flipY);
             ImGui::SliderFloat("Bloom Intensity", &layer.bloom, 0.0f, 5.0f);
+            
+            if (ImGui::TreeNode("Transform")) {
+                ImGui::SliderFloat("Rotation", &layer.rotation, 0.0f, 360.0f);
+                ImGui::SliderFloat("X Scale", &layer.xScale, 0.1f, 5.0f);
+                ImGui::SliderFloat("Y Scale", &layer.yScale, 0.1f, 5.0f);
+                ImGui::Checkbox("Flip Horizontal", &layer.flipX);
+                ImGui::Checkbox("Flip Vertical", &layer.flipY);
+                ImGui::Checkbox("Persistence", &layer.useLayerPersistence);
+                
+                ImGui::Separator();
+                ImGui::Text("Offset Pad");
+                ImVec2 padSize = ImVec2(ImGui::GetContentRegionAvail().x, 150);
+                ImVec2 cursor = ImGui::GetCursorScreenPos();
+                ImGui::InvisibleButton("##offset_pad", padSize);
+                if (ImGui::IsItemActive()) {
+                    ImVec2 mousePos = ImGui::GetIO().MousePos;
+                    layer.xOffset = (mousePos.x - cursor.x) / padSize.x * 2.0f - 1.0f;
+                    layer.yOffset = (mousePos.y - cursor.y) / padSize.y * 2.0f - 1.0f; // Note: top-down
+                }
+                
+                ImDrawList* drawList = ImGui::GetWindowDrawList();
+                drawList->AddRectFilled(cursor, ImVec2(cursor.x + padSize.x, cursor.y + padSize.y), IM_COL32(30, 30, 30, 255));
+                drawList->AddRect(cursor, ImVec2(cursor.x + padSize.x, cursor.y + padSize.y), IM_COL32(100, 100, 100, 255));
+                drawList->AddLine(ImVec2(cursor.x + padSize.x/2, cursor.y), ImVec2(cursor.x + padSize.x/2, cursor.y + padSize.y), IM_COL32(60, 60, 60, 255));
+                drawList->AddLine(ImVec2(cursor.x, cursor.y + padSize.y/2), ImVec2(cursor.x + padSize.x, cursor.y + padSize.y/2), IM_COL32(60, 60, 60, 255));
+                
+                ImVec2 dotPos = ImVec2(
+                    cursor.x + (layer.xOffset + 1.0f) / 2.0f * padSize.x,
+                    cursor.y + (layer.yOffset + 1.0f) / 2.0f * padSize.y
+                );
+                drawList->AddCircleFilled(dotPos, 6.0f, IM_COL32(230, 230, 230, 255));
+                drawList->AddCircle(dotPos, 8.0f, IM_COL32(255, 255, 255, 100));
+
+                ImGui::SliderFloat("X Offset", &layer.xOffset, -1.0f, 1.0f);
+                ImGui::SliderFloat("Y Offset", &layer.yOffset, -1.0f, 1.0f);
+                
+                if (ImGui::Button("Reset Transform")) {
+                    layer.xOffset = 0; layer.yOffset = 0;
+                    layer.xScale = 1; layer.yScale = 1;
+                    layer.rotation = 0;
+                }
+                ImGui::TreePop();
+            }
+
             ImGui::Separator();
             ImGui::SliderFloat("Trace Thickness", &layer.traceWidth, 1.0f, 10.0f);
             ImGui::SliderFloat("Beam Head Size", &layer.beamHeadSize, 0.0f, 30.0f);

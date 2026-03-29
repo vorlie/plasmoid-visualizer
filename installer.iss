@@ -2,7 +2,7 @@
 ; This script creates a Windows installer for the application
 
 #define AppName "Plasmoid Visualizer"
-#define AppVersion "1.0.4"
+#define AppVersion "1.0.5"
 #define AppPublisher "Vorlie"
 #define AppURL "https://github.com/vorlie/plasmoid-visualizer"
 #define AppExeName "PlasmoidVisualizer.exe"

@@ -47,6 +47,9 @@ public:
     void setBeamHeadSize(float size) { m_beamHeadSize = size; }
     void setVelocityModulation(float amount) { m_velocityModulation = amount; }
     void setBarAnchor(BarAnchor anchor) { m_barAnchor = anchor; }
+    void setOffset(float x, float y) { m_offsetX = x; m_offsetY = y; }
+    void setScale(float x, float y) { m_scaleX = x; m_scaleY = y; }
+    void setPersistenceEnabled(bool enabled) { m_persistenceEnabled = enabled; }
 
     // FBO Persistence
     void setupPersistence(int width, int height);
@@ -83,6 +86,11 @@ private:
     float m_beamHeadSize = 0.0f; // 0.0 = disabled
     float m_velocityModulation = 0.0f; // 0.0 = disabled
     BarAnchor m_barAnchor = BarAnchor::Bottom;
+    float m_offsetX = 0.0f;
+    float m_offsetY = 0.0f;
+    float m_scaleX = 1.0f;
+    float m_scaleY = 1.0f;
+    bool m_persistenceEnabled = true;
 
     // FBO Persistence
     GLuint m_fbo = 0;

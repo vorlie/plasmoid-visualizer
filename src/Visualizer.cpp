@@ -555,8 +555,11 @@ void Visualizer::render(const std::vector<float>& magnitudes) {
     } else if (m_shape == VisualizerShape::OscilloscopeXY) {
         float prevX = 0, prevY = 0;
         for (size_t i = 0; i < magnitudes.size() / 2; ++i) {
-            float x = magnitudes[i * 2] * xScale;
-            float y = magnitudes[i * 2 + 1] * yScale;
+            float x = magnitudes[i * 2] * xScale * m_scaleX;
+            float y = magnitudes[i * 2 + 1] * yScale * m_scaleY;
+            
+            x += m_offsetX;
+            y += m_offsetY;
 
             // Apply rotation
             float rx = x * cos(m_rotationAngle) - y * sin(m_rotationAngle);
@@ -588,8 +591,12 @@ void Visualizer::render(const std::vector<float>& magnitudes) {
         
         // Helper to get transformed XY at index
         auto getXY = [&](size_t idx, float& x, float& y) {
-            x = magnitudes[idx * 2] * xScale;
-            y = magnitudes[idx * 2 + 1] * yScale;
+            x = magnitudes[idx * 2] * xScale * m_scaleX;
+            y = magnitudes[idx * 2 + 1] * yScale * m_scaleY;
+            
+            x += m_offsetX;
+            y += m_offsetY;
+            
             // Apply rotation
             float rx = x * cos(m_rotationAngle) - y * sin(m_rotationAngle);
             float ry = x * sin(m_rotationAngle) + y * cos(m_rotationAngle);

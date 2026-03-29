@@ -31,6 +31,8 @@ public:
     void setBaseFrequency(float freq) { m_baseFreq = freq; }
     float getBaseFrequency() const { return m_baseFreq; }
     
+    std::vector<float> getPreviewPoints(int count, float timeRange);
+    
     std::string getXExpression() const { return m_xExpr; }
     std::string getYExpression() const { return m_yExpr; }
     std::string getErrorMessage() const { return m_lastError; }
@@ -43,10 +45,16 @@ private:
     bool m_isValid;
     float m_baseFreq = 440.0f;
     
+    // Evaluation state
+    double m_evalT = 0.0;
+    double m_evalF = 440.0;
+    void* m_xParsed = nullptr;
+    void* m_yParsed = nullptr;
+    
     std::vector<OscMusicPreset> m_presets;
     
+    void cleanupExpressions();
     void initializePresets();
-    float evaluateExpression(const std::string& expr, double t, bool& success);
 };
 
 #endif // OSCMUSIC_EDITOR_HPP

@@ -34,6 +34,11 @@ struct VisualizerLayer {
     float fillOpacity = 0.0f;
     float beamHeadSize = 0.0f;
     float velocityModulation = 0.0f;
+    float xOffset = 0.0f;
+    float yOffset = 0.0f;
+    float xScale = 1.0f;
+    float yScale = 1.0f;
+    bool useLayerPersistence = true;
     AudioChannel channel = AudioChannel::Mixed;
     BarAnchor barAnchor = BarAnchor::Bottom;
 };

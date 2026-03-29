@@ -333,7 +333,7 @@ void RenderManager::renderPersistentLayers(
     const std::vector<float>* offlineStereo
 ) {
     for (auto& layer : state.layers) {
-        if (!layer.visible) continue;
+        if (!layer.visible || !layer.useLayerPersistence) continue;
         if (layer.shape != VisualizerShape::OscilloscopeXY && layer.shape != VisualizerShape::OscilloscopeXY_Clean) continue;
 
         std::vector<float> renderData;
@@ -371,6 +371,9 @@ void RenderManager::renderPersistentLayers(
         visualizer.setFillOpacity(layer.fillOpacity);
         visualizer.setBeamHeadSize(layer.beamHeadSize);
         visualizer.setVelocityModulation(layer.velocityModulation);
+        visualizer.setOffset(layer.xOffset, layer.yOffset);
+        visualizer.setScale(layer.xScale, layer.yScale);
+        visualizer.setPersistenceEnabled(layer.useLayerPersistence);
         visualizer.setBarAnchor(layer.barAnchor);
         visualizer.render(renderData);
     }
@@ -386,7 +389,8 @@ void RenderManager::renderDirectLayers(
 ) {
     for (auto& layer : state.layers) {
         if (!layer.visible) continue;
-        if (layer.shape == VisualizerShape::OscilloscopeXY || layer.shape == VisualizerShape::OscilloscopeXY_Clean) continue;
+        // Skip persistent XY layers (they are handled in renderPersistentLayers)
+        if ((layer.shape == VisualizerShape::OscilloscopeXY || layer.shape == VisualizerShape::OscilloscopeXY_Clean) && layer.useLayerPersistence) continue;
 
         std::vector<float> renderData;
         if (layer.shape == VisualizerShape::Waveform) {
@@ -445,6 +449,9 @@ void RenderManager::renderDirectLayers(
         visualizer.setFillOpacity(layer.fillOpacity);
         visualizer.setBeamHeadSize(layer.beamHeadSize);
         visualizer.setVelocityModulation(layer.velocityModulation);
+        visualizer.setOffset(layer.xOffset, layer.yOffset);
+        visualizer.setScale(layer.xScale, layer.yScale);
+        visualizer.setPersistenceEnabled(layer.useLayerPersistence);
         visualizer.setBarAnchor(layer.barAnchor);
         visualizer.render(renderData);
     }
