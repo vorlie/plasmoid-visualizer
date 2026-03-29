@@ -278,6 +278,8 @@ void AudioEngine::resetDevice() {
     }
     m_isCaptureMode = false;
     m_isPlaying = false;
+    m_oscMusicMode = false;
+    m_testTone = false;
 }
 
 bool AudioEngine::loadFile(const std::string& filePath) {

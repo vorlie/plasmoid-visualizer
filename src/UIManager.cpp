@@ -292,7 +292,10 @@ void UIManager::renderAudioSettings(AppState& state, AudioEngine& audioEngine, O
                 }
             }
             ImGui::SameLine();
-            if (ImGui::Button("Stop Preview")) audioEngine.stop();
+            if (ImGui::Button("Stop Preview")) {
+                audioEngine.stop();
+                audioEngine.setOscMusicMode(false);
+            }
             
             ImGui::Separator(); ImGui::Text("Presets");
             auto presets = oscMusicEditor.getPresets();
