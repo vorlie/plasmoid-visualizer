@@ -8,6 +8,7 @@
 #include "AnalysisEngine.hpp"
 #include "Visualizer.hpp"
 #include "ParticleSystem.hpp"
+#include "BloomRenderer.hpp"
 #include <vector>
 
 class RenderManager {
@@ -64,6 +65,8 @@ public:
     );
 
 private:
+    BloomRenderer m_bloomRenderer;
+    Framebuffer m_sceneBuffer;
     GLuint m_captureFbo = 0;
     GLuint m_captureTex = 0;
     GLuint m_captureRbo = 0;

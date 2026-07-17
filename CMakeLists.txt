@@ -42,6 +42,7 @@ set(SOURCES
     src/rendering/Framebuffer.cpp
     src/rendering/Texture2D.cpp
     src/rendering/FontAtlas.cpp
+    src/rendering/BloomRenderer.cpp
     src/rendering/StbImplementations.cpp
     src/rendering/ParticleSystem.cpp
     src/rendering/RenderManager.cpp

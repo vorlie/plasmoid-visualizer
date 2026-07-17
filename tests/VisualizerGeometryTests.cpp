@@ -32,5 +32,24 @@ int main() {
         return 1;
     }
 
+    const std::vector<float> cornerWithDuplicate = {
+        -0.5f, 0.0f, 0.0f, 0.0f, 1.0f,
+         0.0f, 0.0f, 0.0f, 0.0f, 1.0f,
+         0.0f, 0.0f, 0.0f, 0.0f, 1.0f,
+         0.0f, 0.5f, 0.0f, 0.0f, 1.0f
+    };
+    const auto joinedRibbon = VisualizerGeometry::buildTraceRibbon(
+        cornerWithDuplicate, 4.0f, 100, 100);
+    if (joinedRibbon.size() != 40) {
+        std::cerr << "Joined trace ribbon has an unexpected vertex count\n";
+        return 1;
+    }
+    for (float value : joinedRibbon) {
+        if (!std::isfinite(value)) {
+            std::cerr << "Joined trace ribbon contains an invalid value\n";
+            return 1;
+        }
+    }
+
     return 0;
 }

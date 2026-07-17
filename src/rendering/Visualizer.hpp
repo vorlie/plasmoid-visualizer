@@ -43,6 +43,10 @@ public:
     void beginPersistence();
     void endPersistence();
     void drawPersistenceBuffer();
+    void drawTexture(GLuint texture);
+    [[nodiscard]] GLuint persistenceTexture() const noexcept {
+        return m_persistenceBuffer.texture();
+    }
     
     // Background Image & Zen-Kun Effects
     bool loadBackground(const std::string& path);

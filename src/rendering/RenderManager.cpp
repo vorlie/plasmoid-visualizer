@@ -99,14 +99,23 @@ void RenderManager::renderToTarget(
             }
         }
 
+        // Preserve the caller's target while the persistence and bloom passes
+        // temporarily bind their own framebuffers.
+        GLint targetFramebuffer = 0;
+        glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &targetFramebuffer);
+
         // 1. PERSISTENCE PASS (Render to FBO)
         visualizer.setupPersistence(width, height);
         visualizer.beginPersistence();
 
         bool usePersistence = false;
+        bool useBloom = false;
         for (auto& l : state.layers) {
-            if (l.visible && (l.shape == VisualizerShape::OscilloscopeXY || l.shape == VisualizerShape::OscilloscopeXY_Clean)) {
-                usePersistence = true; break;
+            const bool isXY = l.shape == VisualizerShape::OscilloscopeXY ||
+                              l.shape == VisualizerShape::OscilloscopeXY_Clean;
+            if (l.visible && isXY) {
+                usePersistence |= l.useLayerPersistence;
+                useBloom |= l.bloom > 0.01f;
             }
         }
 
@@ -134,26 +143,39 @@ void RenderManager::renderToTarget(
         
         visualizer.endPersistence();
 
-        // 2. MAIN PASS (Draw to screen/FBO)
+        // 2. SCENE PASS: combine persistent and direct layers in HDR before
+        // displaying them. This lets bloom work even when persistence is off.
+        m_sceneBuffer.resize(width, height);
+        m_sceneBuffer.bind();
         glViewport(0, 0, width, height);
         glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT);
 
-        // 2.a Draw Persistence results with additive blending
         glEnable(GL_BLEND);
-        glBlendFunc(GL_ONE, GL_ONE); 
+        glBlendFunc(GL_ONE, GL_ONE);
         visualizer.drawPersistenceBuffer();
-        
-        // 2.b Restore standard blending for UI and other layers
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-
-        // 2.c Draw Grid (on top)
-        //visualizer.renderGrid();
-
-        // 2.d Render non-persistent layers directly
         renderDirectLayers(state, audioEngine, analysisEngine, visualizer);
 
-        // 2.e Draw UI Overlay (Song Info)
+        // 3. OUTPUT PASS: draw the sharp HDR scene, then add blurred bright
+        // pixels over it. UI is drawn afterward and stays crisp.
+        glBindFramebuffer(GL_FRAMEBUFFER, static_cast<GLuint>(targetFramebuffer));
+        glViewport(0, 0, width, height);
+        glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+        glClear(GL_COLOR_BUFFER_BIT);
+        glBlendFunc(GL_ONE, GL_ONE);
+        visualizer.drawTexture(m_sceneBuffer.texture());
+
+        if (useBloom) {
+            m_bloomRenderer.render(
+                m_sceneBuffer.texture(),
+                static_cast<GLuint>(targetFramebuffer),
+                width,
+                height);
+        }
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+        // 4. UI Overlay
         if (state.showSongInfo) {
             float textColor[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
             float shadowColor[4] = { 0.0f, 0.0f, 0.0f, 0.5f };
@@ -249,14 +271,21 @@ void RenderManager::renderOfflineFrame(
             }
         }
 
+        GLint targetFramebuffer = 0;
+        glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &targetFramebuffer);
+
         // 1. PERSISTENCE PASS (Render to FBO)
         visualizer.setupPersistence(width, height);
         visualizer.beginPersistence();
 
         bool usePersistence = false;
+        bool useBloom = false;
         for (auto& l : state.layers) {
-            if (l.visible && (l.shape == VisualizerShape::OscilloscopeXY || l.shape == VisualizerShape::OscilloscopeXY_Clean)) {
-                usePersistence = true; break;
+            const bool isXY = l.shape == VisualizerShape::OscilloscopeXY ||
+                              l.shape == VisualizerShape::OscilloscopeXY_Clean;
+            if (l.visible && isXY) {
+                usePersistence |= l.useLayerPersistence;
+                useBloom |= l.bloom > 0.01f;
             }
         }
 
@@ -285,30 +314,38 @@ void RenderManager::renderOfflineFrame(
         }
         
         visualizer.endPersistence();
-        
-        // RE-BIND capture FBO because endPersistence() binds 0
-        glBindFramebuffer(GL_FRAMEBUFFER, m_captureFbo);
 
-        // 2. MAIN PASS (Draw to FBO)
+        // 2. HDR scene pass.
+        m_sceneBuffer.resize(width, height);
+        m_sceneBuffer.bind();
         glViewport(0, 0, width, height);
         glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT);
 
-        // 2.a Draw Persistence results with additive blending
         glEnable(GL_BLEND);
-        glBlendFunc(GL_ONE, GL_ONE); 
+        glBlendFunc(GL_ONE, GL_ONE);
         visualizer.drawPersistenceBuffer();
-        
-        // 2.b Restore standard blending
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-
-        // 2.c Draw Grid
-        //visualizer.renderGrid();
-
-        // 2.d Render non-persistent layers directly
         renderDirectLayers(state, dummyAudio, analysisEngine, visualizer, &stereoBuffer, &monoBuffer);
 
-        // 2.e Draw UI Overlay (Song Info - Offline)
+        // 3. Output to the offline capture framebuffer.
+        glBindFramebuffer(GL_FRAMEBUFFER, static_cast<GLuint>(targetFramebuffer));
+        glViewport(0, 0, width, height);
+        glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+        glClear(GL_COLOR_BUFFER_BIT);
+        glBlendFunc(GL_ONE, GL_ONE);
+        visualizer.drawTexture(m_sceneBuffer.texture());
+
+        if (useBloom) {
+            m_bloomRenderer.render(
+                m_sceneBuffer.texture(),
+                static_cast<GLuint>(targetFramebuffer),
+                width,
+                height);
+        }
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+        // 4. UI Overlay (Song Info - Offline)
         if (state.showSongInfo) {
             float textColor[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
             float pillColor[4] = { 0.0f, 0.0f, 0.0f, 0.7f };

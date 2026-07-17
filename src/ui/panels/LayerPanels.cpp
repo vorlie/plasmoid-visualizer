@@ -150,7 +150,8 @@ void UIManager::renderLayerEditor(AppState& state) {
             ImGui::Separator();
             ImGui::SliderFloat("Trace Thickness", &layer.traceWidth, 1.0f, 10.0f);
             ImGui::SliderFloat("Beam Head Size", &layer.beamHeadSize, 0.0f, 30.0f);
-            ImGui::SliderFloat("Velocity Brightness", &layer.velocityModulation, 0.0f, 2.0f);
+            ImGui::SliderFloat("Beam Dwell Effect", &layer.velocityModulation, 0.0f, 1.0f);
+            ImGui::SameLine(); HelpMarker("Dims fast beam movement slightly while keeping the trace continuous.");
             ImGui::Checkbox("Automatic XY Gain", &layer.xyAutoGain);
         }
         if (layer.shape == VisualizerShape::Curve) {
