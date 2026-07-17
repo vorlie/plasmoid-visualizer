@@ -77,6 +77,7 @@ bool ConfigManager::save(const std::string& filename, const AppConfig& config) {
             {"fill_opacity", layer.fillOpacity},
             {"beam_head_size", layer.beamHeadSize},
             {"velocity_modulation", layer.velocityModulation},
+            {"xy_auto_gain", layer.xyAutoGain},
             {"audio_channel", layer.audioChannel},
             {"bar_anchor", layer.barAnchor}
         });
@@ -169,6 +170,7 @@ bool ConfigManager::load(const std::string& filename, AppConfig& config) {
                     l.fillOpacity = (*layerTbl)["fill_opacity"].value_or(0.0f);
                     l.beamHeadSize = (*layerTbl)["beam_head_size"].value_or(0.0f);
                     l.velocityModulation = (*layerTbl)["velocity_modulation"].value_or(0.0f);
+                    l.xyAutoGain = (*layerTbl)["xy_auto_gain"].value_or(false);
                     l.audioChannel = (*layerTbl)["audio_channel"].value_or(0);
                     l.barAnchor = (*layerTbl)["bar_anchor"].value_or(0);
                     

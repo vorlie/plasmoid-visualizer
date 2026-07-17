@@ -1,6 +1,7 @@
 #ifndef PARTICLESYSTEM_HPP
 #define PARTICLESYSTEM_HPP
 
+#include "ShaderProgram.hpp"
 #include <GL/glew.h>
 #include <vector>
 #include <glm/glm.hpp>
@@ -32,7 +33,7 @@ public:
 private:
     std::vector<Particle> m_particles;
     GLuint m_vao, m_vbo;
-    GLuint m_shaderProgram;
+    ShaderProgram m_shaderProgram;
 
     // Settings
     int m_maxParticles = 500;

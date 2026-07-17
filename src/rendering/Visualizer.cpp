@@ -1,32 +1,18 @@
 #include "Visualizer.hpp"
+#include "AssetPaths.hpp"
+#include "VisualizerGeometry.hpp"
 #include <iostream>
 #include <algorithm>
 #include <cmath>
-#include <fstream>
-#include <sstream>
-
-#define STB_IMAGE_IMPLEMENTATION
-#include "stb_image.h"
-#define STB_TRUETYPE_IMPLEMENTATION
-#include "stb_truetype.h"
-
-static std::string loadShaderSource(const std::string& path) {
-    std::ifstream f(path);
-    if (!f.is_open()) {
-        std::cerr << "Failed to open shader file: " << path << std::endl;
-        return std::string();
-    }
-    std::stringstream ss;
-    ss << f.rdbuf();
-    return ss.str();
-}
 
 Visualizer::Visualizer() {
     initShaders();
     initQuad();
     
-    // Default font
-    loadFont("/usr/share/fonts/Adwaita/AdwaitaMono-Regular.ttf");
+    const auto defaultFont = AssetPaths::defaultFont();
+    if (!defaultFont.empty()) {
+        loadFont(defaultFont.string());
+    }
     glGenVertexArrays(1, &m_vao);
     glGenBuffers(1, &m_vbo);
 
@@ -40,51 +26,17 @@ Visualizer::Visualizer() {
 Visualizer::~Visualizer() {
     glDeleteVertexArrays(1, &m_vao);
     glDeleteBuffers(1, &m_vbo);
-    glDeleteProgram(m_shaderProgram);
+    glDeleteVertexArrays(1, &m_quadVAO);
+    glDeleteBuffers(1, &m_quadVBO);
 }
 
 void Visualizer::initShaders() {
-    // Load shader sources from files
-    std::string vertSrc = loadShaderSource("shaders/visualizer.vert");
-    std::string fragSrc = loadShaderSource("shaders/visualizer.frag");
-
-    const char* vertexShaderSource = vertSrc.c_str();
-    const char* fragmentShaderSource = fragSrc.c_str();
-
-    GLuint vertexShader = glCreateShader(GL_VERTEX_SHADER);
-    glShaderSource(vertexShader, 1, &vertexShaderSource, NULL);
-    glCompileShader(vertexShader);
-
-    GLuint fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
-    glShaderSource(fragmentShader, 1, &fragmentShaderSource, NULL);
-    glCompileShader(fragmentShader);
-
-    m_shaderProgram = glCreateProgram();
-    glAttachShader(m_shaderProgram, vertexShader);
-    glAttachShader(m_shaderProgram, fragmentShader);
-    glLinkProgram(m_shaderProgram);
-
-    glDeleteShader(vertexShader);
-    glDeleteShader(fragmentShader);
-
-    // Quad Shader
-    std::string qvsSrc = loadShaderSource("shaders/quad.vert");
-    std::string qfsSrc = loadShaderSource("shaders/quad.frag");
-    const char* qvs = qvsSrc.c_str();
-    const char* qfs = qfsSrc.c_str();
-
-    GLuint qvsId = glCreateShader(GL_VERTEX_SHADER);
-    glShaderSource(qvsId, 1, &qvs, NULL);
-    glCompileShader(qvsId);
-    GLuint qfsId = glCreateShader(GL_FRAGMENT_SHADER);
-    glShaderSource(qfsId, 1, &qfs, NULL);
-    glCompileShader(qfsId);
-    m_quadShaderProgram = glCreateProgram();
-    glAttachShader(m_quadShaderProgram, qvsId);
-    glAttachShader(m_quadShaderProgram, qfsId);
-    glLinkProgram(m_quadShaderProgram);
-    glDeleteShader(qvsId);
-    glDeleteShader(qfsId);
+    m_shaderProgram.load(
+        AssetPaths::shader("visualizer.vert"),
+        AssetPaths::shader("visualizer.frag"));
+    m_quadShaderProgram.load(
+        AssetPaths::shader("quad.vert"),
+        AssetPaths::shader("quad.frag"));
 }
 
 void Visualizer::setHeightScale(float scale) {
@@ -130,49 +82,21 @@ void Visualizer::setBloomIntensity(float intensity) {
 
 void Visualizer::setupPersistence(int width, int height) {
     setViewportSize(width, height);
-    if (m_fboWidth == width && m_fboHeight == height) return;
-    
-    if (m_fbo) {
-        glDeleteFramebuffers(1, &m_fbo);
-        glDeleteTextures(1, &m_fboTexture);
-    }
-    
-    m_fboWidth = width;
-    m_fboHeight = height;
-    
-    glGenFramebuffers(1, &m_fbo);
-    glBindFramebuffer(GL_FRAMEBUFFER, m_fbo);
-    
-    glGenTextures(1, &m_fboTexture);
-    glBindTexture(GL_TEXTURE_2D, m_fboTexture);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    
-    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, m_fboTexture, 0);
-    
-    if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
-        std::cerr << "ERROR::FRAMEBUFFER:: Framebuffer is not complete!" << std::endl;
-        
-    // Clear the new FBO to black initially
-    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-    glClear(GL_COLOR_BUFFER_BIT);
-
-    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    m_persistenceBuffer.resize(width, height);
 }
 
 void Visualizer::beginPersistence() {
-    if (!m_fbo) return;
-    glBindFramebuffer(GL_FRAMEBUFFER, m_fbo);
-    glViewport(0, 0, m_fboWidth, m_fboHeight);
+    if (!m_persistenceBuffer.ready()) return;
+    m_persistenceBuffer.bind();
+    glViewport(0, 0, m_persistenceBuffer.width(), m_persistenceBuffer.height());
 }
 
 void Visualizer::endPersistence() {
-    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    Framebuffer::unbind();
 }
 
 void Visualizer::drawPersistenceBuffer() {
-    if (!m_fbo) return;
+    if (!m_persistenceBuffer.ready()) return;
     glUseProgram(m_quadShaderProgram);
     glUniform1i(glGetUniformLocation(m_quadShaderProgram, "uUseTexture"), 1);
     glUniform4f(glGetUniformLocation(m_quadShaderProgram, "uColor"), 1.0f, 1.0f, 1.0f, 1.0f);
@@ -184,43 +108,21 @@ void Visualizer::drawPersistenceBuffer() {
     if (offsetLoc != -1) glUniform2f(offsetLoc, 0.0f, 0.0f);
 
     glBindVertexArray(m_quadVAO);
-    glBindTexture(GL_TEXTURE_2D, m_fboTexture);
+    glBindTexture(GL_TEXTURE_2D, m_persistenceBuffer.texture());
     glDrawArrays(GL_TRIANGLES, 0, 6);
     glUseProgram(0);
 }
 
 bool Visualizer::loadBackground(const std::string& path) {
-    if (m_bgTexture) clearBackground();
-
-    int channels;
-    stbi_set_flip_vertically_on_load(true); 
-    unsigned char* data = stbi_load(path.c_str(), &m_bgWidth, &m_bgHeight, &channels, 4);
-    if (!data) {
-        std::cerr << "Failed to load background image: " << path << std::endl;
-        return false;
-    }
-
-    glGenTextures(1, &m_bgTexture);
-    glBindTexture(GL_TEXTURE_2D, m_bgTexture);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, m_bgWidth, m_bgHeight, 0, GL_RGBA, GL_UNSIGNED_BYTE, data);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-
-    stbi_image_free(data);
-    return true;
+    return m_backgroundTexture.loadRgba(path, true);
 }
 
 void Visualizer::clearBackground() {
-    if (m_bgTexture) {
-        glDeleteTextures(1, &m_bgTexture);
-        m_bgTexture = 0;
-    }
+    m_backgroundTexture.reset();
 }
 
 void Visualizer::drawBackground(float scale, float shakeX, float shakeY, float rotation) {
-    if (!m_bgTexture) return;
+    if (!m_backgroundTexture.loaded()) return;
 
     glUseProgram(m_quadShaderProgram);
     glUniform2f(glGetUniformLocation(m_quadShaderProgram, "uSize"), scale, scale);
@@ -229,7 +131,7 @@ void Visualizer::drawBackground(float scale, float shakeX, float shakeY, float r
     
     glBindVertexArray(m_quadVAO);
     glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_2D, m_bgTexture);
+    glBindTexture(GL_TEXTURE_2D, m_backgroundTexture.id());
     glUniform1i(glGetUniformLocation(m_quadShaderProgram, "uTexture"), 0);
     glUniform1i(glGetUniformLocation(m_quadShaderProgram, "uUseTexture"), 1);
     glUniform4f(glGetUniformLocation(m_quadShaderProgram, "uColor"), 1, 1, 1, 1);
@@ -266,53 +168,15 @@ void Visualizer::drawRoundedRect(float x, float y, float w, float h, float radiu
 }
 
 bool Visualizer::loadFont(const std::string& path) {
-    std::ifstream file(path, std::ios::binary | std::ios::ate);
-    if (!file.is_open()) {
-        std::cerr << "Failed to open font file: " << path << std::endl;
-        return false;
-    }
-    size_t size = file.tellg();
-    file.seekg(0, std::ios::beg);
-    std::vector<unsigned char> buffer(size);
-    file.read((char*)buffer.data(), size);
-    file.close();
-
-    unsigned char* bitmap = new unsigned char[1024 * 1024];
-    stbtt_bakedchar baked[128]; // ASCII
-    stbtt_BakeFontBitmap(buffer.data(), 0, m_fontSize, bitmap, 1024, 1024, 32, 96, baked);
-
-    if (m_fontTexture) glDeleteTextures(1, &m_fontTexture);
-    glGenTextures(1, &m_fontTexture);
-    glBindTexture(GL_TEXTURE_2D, m_fontTexture);
-    glPixelStorei(GL_UNPACK_ALIGNMENT, 1); // Crucial for font bitmaps
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RED, 1024, 1024, 0, GL_RED, GL_UNSIGNED_BYTE, bitmap);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-
-    for (int i = 0; i < 128; i++) {
-        if (i < 32 || i >= 128) continue;
-        stbtt_bakedchar& b = baked[i - 32];
-        m_chars[i].ax = b.xadvance;
-        m_chars[i].bw = (float)(b.x1 - b.x0);
-        m_chars[i].bh = (float)(b.y1 - b.y0);
-        m_chars[i].bl = b.xoff;
-        m_chars[i].bt = b.yoff;
-        m_chars[i].tx = b.x0 / 1024.0f;
-        m_chars[i].ty = b.y0 / 1024.0f;
-    }
-
-    delete[] bitmap;
-    return true;
+    return m_fontAtlas.load(path, 48.0f);
 }
 
 void Visualizer::drawText(const std::string& text, float x, float y, float scale, const float color[4]) {
-    if (!m_fontTexture) return;
+    if (!m_fontAtlas.loaded()) return;
 
     glUseProgram(m_quadShaderProgram);
     glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_2D, m_fontTexture);
+    glBindTexture(GL_TEXTURE_2D, m_fontAtlas.texture());
     glUniform1i(glGetUniformLocation(m_quadShaderProgram, "uTexture"), 0);
     glUniform1i(glGetUniformLocation(m_quadShaderProgram, "uUseTexture"), 1);
     glUniform4f(glGetUniformLocation(m_quadShaderProgram, "uColor"), color[0], color[1], color[2], color[3]);
@@ -324,12 +188,12 @@ void Visualizer::drawText(const std::string& text, float x, float y, float scale
 
     for (char c : text) {
         if (c < 32 || c >= 128) continue;
-        CharInfo& ch = m_chars[(int)c];
+        const GlyphInfo& ch = m_fontAtlas.glyph(static_cast<unsigned char>(c));
 
-        float w = (ch.bw / (float)m_viewportWidth) * scale;
-        float h = (ch.bh / (float)m_viewportHeight) * scale;
-        float ox = (ch.bl / (float)m_viewportWidth) * scale;
-        float oy = (-ch.bt / (float)m_viewportHeight) * scale; // bt is often negative (offset from baseline up)
+        float w = (ch.width / (float)m_viewportWidth) * scale;
+        float h = (ch.height / (float)m_viewportHeight) * scale;
+        float ox = (ch.bearingLeft / (float)m_viewportWidth) * scale;
+        float oy = (-ch.bearingTop / (float)m_viewportHeight) * scale;
 
         // Adjust for quad.frag (which uses TexCoord for SDF/Texture mapping)
         // Actually, for font rendering, we need the frag shader to use the R channel as Alpha.
@@ -341,15 +205,15 @@ void Visualizer::drawText(const std::string& text, float x, float y, float scale
         // STB bakes top-down, GL is bottom-up. Flip TW.y? 
         // Let's use uTexRect to flip the mapping: [tx, ty, tw, -th]? No, that might discard.
         // Better: [tx, ty + th, tw, -th]
-        float tw = ch.bw / 1024.0f;
-        float th = ch.bh / 1024.0f;
-        glUniform4f(glGetUniformLocation(m_quadShaderProgram, "uTexRect"), ch.tx, ch.ty + th, tw, -th);
+        float tw = ch.width / 1024.0f;
+        float th = ch.height / 1024.0f;
+        glUniform4f(glGetUniformLocation(m_quadShaderProgram, "uTexRect"), ch.textureX, ch.textureY + th, tw, -th);
         glUniform1i(glGetUniformLocation(m_quadShaderProgram, "uIsFont"), 1);
 
         glBindVertexArray(m_quadVAO);
         glDrawArrays(GL_TRIANGLES, 0, 6);
 
-        curX += (ch.ax / (float)m_viewportWidth) * scale;
+        curX += (ch.advanceX / (float)m_viewportWidth) * scale;
     }
 
     glUniform4f(glGetUniformLocation(m_quadShaderProgram, "uTexRect"), 0, 0, 1, 1);
@@ -427,15 +291,6 @@ void Visualizer::renderGrid() {
         glVertex2f(1.0f * xScale, p * yScale);
     }
     glEnd();
-}
-
-static float catmullRom(float p0, float p1, float p2, float p3, float t) {
-    return 0.5f * (
-        (2.0f * p1) +
-        (-p0 + p2) * t +
-        (2.0f * p0 - 5.0f * p1 + 4.0f * p2 - p3) * t * t +
-        (-p0 + 3.0f * p1 - 3.0f * p2 + p3) * t * t * t
-    );
 }
 
 void Visualizer::render(const std::vector<float>& magnitudes) {
@@ -545,6 +400,44 @@ void Visualizer::render(const std::vector<float>& magnitudes) {
         }
     };
 
+    const bool isXY = m_shape == VisualizerShape::OscilloscopeXY ||
+                      m_shape == VisualizerShape::OscilloscopeXY_Clean;
+    const size_t xyPointCount = isXY ? magnitudes.size() / 2 : 0;
+    float meanX = 0.0f;
+    float meanY = 0.0f;
+    float xyGain = 1.0f;
+    if (xyPointCount > 0 && m_xyAutoGain) {
+        for (size_t i = 0; i < xyPointCount; ++i) {
+            meanX += magnitudes[i * 2];
+            meanY += magnitudes[i * 2 + 1];
+        }
+        meanX /= static_cast<float>(xyPointCount);
+        meanY /= static_cast<float>(xyPointCount);
+
+        float peak = 0.0f;
+        for (size_t i = 0; i < xyPointCount; ++i) {
+            peak = std::max(peak, std::abs(magnitudes[i * 2] - meanX));
+            peak = std::max(peak, std::abs(magnitudes[i * 2 + 1] - meanY));
+        }
+        if (peak > 1e-4f) xyGain = std::min(0.9f / peak, 8.0f);
+    }
+
+    const float rotationCos = std::cos(m_rotationAngle);
+    const float rotationSin = std::sin(m_rotationAngle);
+    auto getXY = [&](size_t idx, float& x, float& y) {
+        x = (magnitudes[idx * 2] - meanX) * xyGain * xScale * m_scaleX;
+        y = (magnitudes[idx * 2 + 1] - meanY) * xyGain * yScale * m_scaleY;
+
+        const float rotatedX = x * rotationCos - y * rotationSin;
+        const float rotatedY = x * rotationSin + y * rotationCos;
+        x = m_flipX ? -rotatedX : rotatedX;
+        y = m_flipY ? -rotatedY : rotatedY;
+
+        // Translation is screen-relative and should not rotate with the trace.
+        x += m_offsetX;
+        y += m_offsetY;
+    };
+
     if (m_shape == VisualizerShape::Waveform) {
         size_t step = std::max((size_t)1, numBars / 2048);
         for (size_t i = 0; i < numBars; i += step) {
@@ -554,23 +447,9 @@ void Visualizer::render(const std::vector<float>& magnitudes) {
         }
     } else if (m_shape == VisualizerShape::OscilloscopeXY) {
         float prevX = 0, prevY = 0;
-        for (size_t i = 0; i < magnitudes.size() / 2; ++i) {
-            float x = magnitudes[i * 2] * xScale * m_scaleX;
-            float y = magnitudes[i * 2 + 1] * yScale * m_scaleY;
-            
-            x += m_offsetX;
-            y += m_offsetY;
-
-            // Apply rotation
-            float rx = x * cos(m_rotationAngle) - y * sin(m_rotationAngle);
-            float ry = x * sin(m_rotationAngle) + y * cos(m_rotationAngle);
-            x = rx; y = ry;
-
-            if (m_flipX) x = -x;
-            if (m_flipY) y = -y;
-
-            x = std::clamp(x, -1.0f, 1.0f);
-            y = std::clamp(y, -1.0f, 1.0f);
+        for (size_t i = 0; i < xyPointCount; ++i) {
+            float x, y;
+            getXY(i, x, y);
 
             float intensity = 1.0f;
             if (m_velocityModulation > 0.01f && i > 0) {
@@ -585,27 +464,10 @@ void Visualizer::render(const std::vector<float>& magnitudes) {
             prevX = x; prevY = y;
         }
     } else if (m_shape == VisualizerShape::OscilloscopeXY_Clean) {
+        if (xyPointCount < 2) return;
         float prevX = 0, prevY = 0;
-        size_t numPoints = magnitudes.size() / 2;
+        size_t numPoints = xyPointCount;
         int segmentsPerPoint = 4; // Smoothness factor
-        
-        // Helper to get transformed XY at index
-        auto getXY = [&](size_t idx, float& x, float& y) {
-            x = magnitudes[idx * 2] * xScale * m_scaleX;
-            y = magnitudes[idx * 2 + 1] * yScale * m_scaleY;
-            
-            x += m_offsetX;
-            y += m_offsetY;
-            
-            // Apply rotation
-            float rx = x * cos(m_rotationAngle) - y * sin(m_rotationAngle);
-            float ry = x * sin(m_rotationAngle) + y * cos(m_rotationAngle);
-            x = rx; y = ry;
-            if (m_flipX) x = -x;
-            if (m_flipY) y = -y;
-            x = std::clamp(x, -1.0f, 1.0f);
-            y = std::clamp(y, -1.0f, 1.0f);
-        };
 
         for (size_t i = 0; i < numPoints - 1; ++i) {
              float p0x, p0y, p1x, p1y, p2x, p2y, p3x, p3y;
@@ -616,8 +478,8 @@ void Visualizer::render(const std::vector<float>& magnitudes) {
 
              for (int s = 0; s < segmentsPerPoint; ++s) {
                  float t = (float)s / (float)segmentsPerPoint;
-                 float x = catmullRom(p0x, p1x, p2x, p3x, t);
-                 float y = catmullRom(p0y, p1y, p2y, p3y, t);
+                 float x = VisualizerGeometry::catmullRom(p0x, p1x, p2x, p3x, t);
+                 float y = VisualizerGeometry::catmullRom(p0y, p1y, p2y, p3y, t);
                  
                  float intensity = 1.0f;
                  if (m_velocityModulation > 0.01f && (i > 0 || s > 0)) {
@@ -657,8 +519,8 @@ void Visualizer::render(const std::vector<float>& magnitudes) {
                 float t1 = (float)s / segmentsPerBar;
                 float t2 = (float)(s + 1) / segmentsPerBar;
 
-                float h1 = catmullRom(p0, p1, p2, p3, t1);
-                float h2 = catmullRom(p0, p1, p2, p3, t2);
+                float h1 = VisualizerGeometry::catmullRom(p0, p1, p2, p3, t1);
+                float h2 = VisualizerGeometry::catmullRom(p0, p1, p2, p3, t2);
 
                 float x1 = xStart + (xEnd - xStart) * t1;
                 float x2 = xStart + (xEnd - xStart) * t2;
@@ -704,47 +566,30 @@ void Visualizer::render(const std::vector<float>& magnitudes) {
         glLineWidth(m_traceWidth);
         glDrawArrays(GL_LINE_STRIP, 0, (GLsizei)(vertices.size() / 5));
     } else if (m_shape == VisualizerShape::OscilloscopeXY || m_shape == VisualizerShape::OscilloscopeXY_Clean) {
-        // CRT Glow Effect: Multi-pass with additive blending
-        glUseProgram(m_shaderProgram);
-        glBlendFunc(GL_SRC_ALPHA, GL_ONE); // Additive blending for "glow" overlap
-        
-        glLineWidth(m_traceWidth);
+        // Screen-space ribbons provide consistent widths on drivers that only support 1px lines.
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE);
         GLsizei vertexCount = (GLsizei)(vertices.size() / 5);
         GLint colorLoc = glGetUniformLocation(m_shaderProgram, "uColor");
-        
-        // Helper lambda to draw a glow pass and round caps at vertices to avoid corner cuts
-        auto drawGlowPass = [&](float lineW, float alphaMul) {
-            glLineWidth(lineW);
+
+        auto drawTracePass = [&](float width, float alphaMul) {
+            std::vector<float> ribbon = VisualizerGeometry::buildTraceRibbon(
+                vertices, width, m_viewportWidth, m_viewportHeight);
+            if (ribbon.empty()) return;
+            glBindBuffer(GL_ARRAY_BUFFER, m_vbo);
+            glBufferData(GL_ARRAY_BUFFER, ribbon.size() * sizeof(float), ribbon.data(), GL_STREAM_DRAW);
             glUniform4f(colorLoc, m_r, m_g, m_b, m_a * alphaMul * m_bloomIntensity);
-            glDrawArrays(GL_LINE_STRIP, 0, vertexCount);
-
-            // Draw round caps at each vertex to smooth joins where thick lines can produce miter/bevel artifacts
-            GLint shapeLoc = glGetUniformLocation(m_shaderProgram, "uShape");
-            glUniform1i(shapeLoc, 10);
-            glPointSize(lineW);
-            glDrawArrays(GL_POINTS, 0, vertexCount);
-            // Restore shape uniform
-            glUniform1i(shapeLoc, (int)m_shape);
+            glDrawArrays(GL_TRIANGLE_STRIP, 0, (GLsizei)(ribbon.size() / 5));
         };
-        
-        // Pass 1: Massive outer halo (very faint)
-        drawGlowPass(20.0f, 0.05f);
 
-        // Pass 2: Wide glow halo
-        drawGlowPass(10.0f, 0.15f);
-        
-        // Pass 3: Medium glow
-        drawGlowPass(4.0f, 0.4f);
-        
-        // Pass 4: Core line (bright)
-        glLineWidth(2.0f);
-        glUniform4f(colorLoc, m_r, m_g, m_b, m_a * m_bloomIntensity);
-        glDrawArrays(GL_LINE_STRIP, 0, vertexCount);
-        glPointSize(2.0f);
-        glDrawArrays(GL_POINTS, 0, vertexCount);
+        drawTracePass(m_traceWidth + 18.0f, 0.05f);
+        drawTracePass(m_traceWidth + 8.0f, 0.15f);
+        drawTracePass(m_traceWidth + 2.0f, 0.4f);
+        drawTracePass(m_traceWidth, 1.0f);
 
-        // Pass 5: Beam Head (Single point at the very end of the trace)
+        // Restore the centerline for the optional circular beam head.
         if (m_beamHeadSize > 0.01f && vertexCount > 0) {
+            glBindBuffer(GL_ARRAY_BUFFER, m_vbo);
+            glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(float), vertices.data(), GL_STREAM_DRAW);
             glUniform1i(glGetUniformLocation(m_shaderProgram, "uShape"), 10); // Circular Point mode
             
             glPointSize(m_beamHeadSize);
@@ -796,4 +641,3 @@ void Visualizer::render(const std::vector<float>& magnitudes) {
         glDrawArrays(GL_TRIANGLES, 0, (GLsizei)(vertices.size() / 5));
     }
 }
-

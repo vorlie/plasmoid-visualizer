@@ -2,7 +2,7 @@
 out vec4 FragColor;
 in vec2 TexCoord;
 
-uniform sampler2D screenTexture;
+uniform sampler2D uTexture;
 uniform bool uUseTexture;
 uniform bool uIsFont = false;
 uniform vec4 uColor;
@@ -21,7 +21,7 @@ void main() {
     }
 
     if (uUseTexture) {
-        vec4 texColor = texture(screenTexture, TexCoord);
+        vec4 texColor = texture(uTexture, TexCoord);
         if (uIsFont) {
             FragColor = vec4(uColor.rgb, texColor.r * uColor.a);
         } else {

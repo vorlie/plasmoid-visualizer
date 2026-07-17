@@ -7,6 +7,6 @@ out vec4 ParticleColor;
 
 void main() {
     gl_Position = vec4(aPos.x, aPos.y, 0.0, 1.0);
-    gl_PointSize = 10.0; // Hardcoded for debug
+    gl_PointSize = max(aSize, 1.0);
     ParticleColor = aColor;
 }

@@ -1,5 +1,6 @@
 # Build directories
 build/
+build-vs17/
 build_plasma/
 build_release/
 build_plasma_release/

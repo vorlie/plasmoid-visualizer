@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 3.16)
 project(PlasmoidVisualizer)
 
+include(CTest)
+
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
@@ -13,42 +15,76 @@ if(WIN32)
     add_definitions(-DWIN32_LEAN_AND_MEAN -DNOMINMAX -D_USE_MATH_DEFINES)
 endif()
 
+if(BUILD_TESTING)
+    add_executable(VisualizerGeometryTests
+        tests/VisualizerGeometryTests.cpp
+        src/rendering/VisualizerGeometry.cpp
+    )
+    target_include_directories(VisualizerGeometryTests PRIVATE src/rendering)
+    add_test(NAME VisualizerGeometryTests COMMAND VisualizerGeometryTests)
+endif()
+
 # Source files
 set(SOURCES
-    src/main.cpp
-    src/AudioEngine.cpp
-    src/AnalysisEngine.cpp
-    src/Visualizer.cpp
-    src/ConfigManager.cpp
-    src/ParticleSystem.cpp
-    src/SystemStats.cpp
-    src/OscMusicEditor.cpp
-    src/AppState.cpp
-    src/RenderManager.cpp
-    src/ConfigLogic.cpp
-    src/UIManager.cpp
-    src/VideoRenderManager.cpp
-    external/kissfft/kiss_fft.c
-    external/tinyexpr/tinyexpr.c
-    external/imgui/imgui.cpp
-    external/imgui/imgui_draw.cpp
-    external/imgui/imgui_widgets.cpp
-    external/imgui/imgui_tables.cpp
-    external/imgui/imgui_impl_glfw.cpp
-    external/imgui/imgui_impl_opengl3.cpp
+    src/app/main.cpp
+    src/app/AppState.cpp
+    src/app/AssetPaths.cpp
+    src/audio/AudioEngine.cpp
+    src/audio/AnalysisEngine.cpp
+    src/audio/OscMusicEditor.cpp
+    src/config/ConfigManager.cpp
+    src/config/ConfigLogic.cpp
+    src/export/VideoRenderManager.cpp
+    src/platform/SystemStats.cpp
+    src/rendering/Visualizer.cpp
+    src/rendering/VisualizerGeometry.cpp
+    src/rendering/ShaderProgram.cpp
+    src/rendering/Framebuffer.cpp
+    src/rendering/Texture2D.cpp
+    src/rendering/FontAtlas.cpp
+    src/rendering/StbImplementations.cpp
+    src/rendering/ParticleSystem.cpp
+    src/rendering/RenderManager.cpp
+    src/ui/UIManager.cpp
+    src/ui/panels/AudioSettingsPanel.cpp
+    src/ui/panels/BackgroundPanel.cpp
+    src/ui/panels/DiagnosticsPanels.cpp
+    src/ui/panels/LayerPanels.cpp
+    src/ui/panels/PlaybackPanels.cpp
+    third_party/kissfft/kiss_fft.c
+    third_party/tinyexpr/tinyexpr.c
+    third_party/imgui/imgui.cpp
+    third_party/imgui/imgui_draw.cpp
+    third_party/imgui/imgui_widgets.cpp
+    third_party/imgui/imgui_tables.cpp
+    third_party/imgui/imgui_impl_glfw.cpp
+    third_party/imgui/imgui_impl_opengl3.cpp
 )
 
 add_executable(PlasmoidVisualizer ${SOURCES})
+set_target_properties(PlasmoidVisualizer PROPERTIES
+    VS_DEBUGGER_WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
+)
+
+# Keep Visual Studio's Solution Explorer aligned with the on-disk layout.
+source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}" FILES ${SOURCES})
 
 # Include directories
 target_include_directories(PlasmoidVisualizer PRIVATE 
-    src 
+    src
+    src/app
+    src/audio
+    src/config
+    src/export
+    src/platform
+    src/rendering
+    src/ui
     include 
-    external 
-    external/kissfft 
-    external/imgui 
-    external/tinyexpr 
-    external/tomlplusplus
+    third_party
+    third_party/kissfft
+    third_party/imgui
+    third_party/tinyexpr
+    third_party/tomlplusplus
 )
 
 # Manage local dependencies (GLM, GLEW, GLFW)
@@ -94,25 +130,25 @@ if(NOT glfw3_FOUND)
     endif()
 endif()
 
-# Copy shaders directory into the build output so the executable can find them at runtime
-set(SHADER_SRC_DIR ${CMAKE_SOURCE_DIR}/shaders)
-set(SHADER_DST_DIR ${CMAKE_BINARY_DIR}/shaders)
-if(EXISTS ${SHADER_SRC_DIR})
-    add_custom_target(copy_shaders ALL
-        COMMAND ${CMAKE_COMMAND} -E make_directory ${SHADER_DST_DIR}
-        COMMAND ${CMAKE_COMMAND} -E copy_directory ${SHADER_SRC_DIR} ${SHADER_DST_DIR}
-        COMMENT "Copying shaders to build directory"
+# Copy runtime assets into the build output.
+set(ASSET_SRC_DIR ${CMAKE_SOURCE_DIR}/assets)
+set(ASSET_DST_DIR ${CMAKE_BINARY_DIR}/assets)
+if(EXISTS ${ASSET_SRC_DIR})
+    add_custom_target(copy_assets ALL
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${ASSET_DST_DIR}
+        COMMAND ${CMAKE_COMMAND} -E copy_directory ${ASSET_SRC_DIR} ${ASSET_DST_DIR}
+        COMMENT "Copying runtime assets to build directory"
     )
-    add_dependencies(PlasmoidVisualizer copy_shaders)
+    add_dependencies(PlasmoidVisualizer copy_assets)
 endif()
 
 # Install rules for release packaging
 # The executable
 install(TARGETS PlasmoidVisualizer DESTINATION .)
 
-# Install shaders directory
-if(EXISTS ${SHADER_SRC_DIR})
-    install(DIRECTORY ${SHADER_SRC_DIR} DESTINATION .)
+# Install runtime assets.
+if(EXISTS ${ASSET_SRC_DIR})
+    install(DIRECTORY ${ASSET_SRC_DIR} DESTINATION .)
 endif()
 
 # Install GLEW DLL on Windows

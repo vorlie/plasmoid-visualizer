@@ -1,28 +1,14 @@
 #ifndef VISUALIZER_HPP
 #define VISUALIZER_HPP
 
+#include "VisualizerTypes.hpp"
+#include "ShaderProgram.hpp"
+#include "Framebuffer.hpp"
+#include "Texture2D.hpp"
+#include "FontAtlas.hpp"
 #include <GL/glew.h>
-#include <GLFW/glfw3.h>
 #include <vector>
 #include <string>
-
-enum class VisualizerShape {
-    Bars,
-    Lines,
-    Dots,
-    Waveform,
-    OscilloscopeXY,
-    Curve,
-    OscilloscopeXY_Clean
-};
-
-enum class BarAnchor {
-    Bottom = 0,
-    Top = 1,
-    Left = 2,
-    Right = 3,
-    Center = 4
-};
 
 class Visualizer {
 public:
@@ -46,6 +32,7 @@ public:
     void setFillOpacity(float opacity) { m_fillOpacity = opacity; }
     void setBeamHeadSize(float size) { m_beamHeadSize = size; }
     void setVelocityModulation(float amount) { m_velocityModulation = amount; }
+    void setXYAutoGain(bool enabled) { m_xyAutoGain = enabled; }
     void setBarAnchor(BarAnchor anchor) { m_barAnchor = anchor; }
     void setOffset(float x, float y) { m_offsetX = x; m_offsetY = y; }
     void setScale(float x, float y) { m_scaleX = x; m_scaleY = y; }
@@ -66,9 +53,9 @@ public:
     bool loadFont(const std::string& path);
 
 private:
-    GLuint m_shaderProgram;
-    GLuint m_quadShaderProgram;
-    GLuint m_vao, m_vbo;
+    ShaderProgram m_shaderProgram;
+    ShaderProgram m_quadShaderProgram;
+    GLuint m_vao = 0, m_vbo = 0;
     float m_heightScale = 0.2f;
     bool m_mirrored = false;
     VisualizerShape m_shape = VisualizerShape::Bars;
@@ -85,6 +72,7 @@ private:
     float m_fillOpacity = 0.0f; // 0.0 = no fill, 1.0 = solid fill
     float m_beamHeadSize = 0.0f; // 0.0 = disabled
     float m_velocityModulation = 0.0f; // 0.0 = disabled
+    bool m_xyAutoGain = false;
     BarAnchor m_barAnchor = BarAnchor::Bottom;
     float m_offsetX = 0.0f;
     float m_offsetY = 0.0f;
@@ -92,23 +80,12 @@ private:
     float m_scaleY = 1.0f;
     bool m_persistenceEnabled = true;
 
-    // FBO Persistence
-    GLuint m_fbo = 0;
-    GLuint m_fboTexture = 0;
-    int m_fboWidth = 0;
-    int m_fboHeight = 0;
+    Framebuffer m_persistenceBuffer;
     GLuint m_quadVAO = 0, m_quadVBO = 0;
 
-    GLuint m_bgTexture = 0;
-    int m_bgWidth = 0;
-    int m_bgHeight = 0;
+    Texture2D m_backgroundTexture;
 
-    // Font Rendering
-    GLuint m_fontTexture = 0;
-    struct CharInfo {
-        float ax, ay, bl, bt, bw, bh, tx, ty;
-    } m_chars[128];
-    float m_fontSize = 48.0f;
+    FontAtlas m_fontAtlas;
 
     void initShaders();
     void initQuad();

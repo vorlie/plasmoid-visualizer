@@ -17,24 +17,21 @@ void main() {
         if (uCornerRadius > 0.001) {
             vec2 p = LocalPos * 2.0 - 1.0;
             float dist = roundedBoxSDF(p, vec2(1.0), uCornerRadius);
-            float delta = fwidth(dist);
-            alpha = 1.0 - smoothstep(-delta, 0.0, dist);
+            float delta = max(fwidth(dist), 1e-5);
+            alpha = 1.0 - smoothstep(-delta, delta, dist);
         }
     } else if (uShape == 2) { // Dots (Quads)
         float dist = length(LocalPos * 2.0 - 1.0);
-        float delta = fwidth(dist);
+        float delta = max(fwidth(dist), 1e-5);
         alpha = 1.0 - smoothstep(1.0 - delta, 1.0, dist);
     } else if (uShape == 10) { // Circular Points (for Beam Head)
         float dist = length(gl_PointCoord * 2.0 - 1.0);
-        float delta = fwidth(dist);
+        float delta = max(fwidth(dist), 1e-5);
         alpha = 1.0 - smoothstep(1.0 - delta, 1.0, dist);
-        if (uShape == 10) { // Beam Head soft falloff
-            alpha *= (1.0 - smoothstep(0.4, 1.0, dist));
-        }
+        alpha *= (1.0 - smoothstep(0.4, 1.0, dist));
         FragColor = uColor * vIntensity * alpha;
         return;
     }
     
-    if (alpha <= 0.0) discard;
     FragColor = uColor * vIntensity * alpha;
 }

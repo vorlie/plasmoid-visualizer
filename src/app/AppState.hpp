@@ -4,7 +4,7 @@
 #include <vector>
 #include <string>
 #include "AnalysisEngine.hpp"
-#include "Visualizer.hpp"
+#include "VisualizerTypes.hpp"
 #include "imgui.h"
 
 enum class AudioMode {
@@ -34,6 +34,7 @@ struct VisualizerLayer {
     float fillOpacity = 0.0f;
     float beamHeadSize = 0.0f;
     float velocityModulation = 0.0f;
+    bool xyAutoGain = false;
     float xOffset = 0.0f;
     float yOffset = 0.0f;
     float xScale = 1.0f;

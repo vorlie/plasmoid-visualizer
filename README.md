@@ -20,6 +20,19 @@ A high-performance C++ Audio Visualizer suite featuring a powerful standalone Op
 - **Oscilloscope Music Editor**: Write custom mathematical expressions `X(t)` and `Y(t)` to generate visuals.
 - **FBO Rendering**: Isolated effect accumulation for professional visuals without UI ghosting.
 
+### Project layout
+
+- `src/app`: application entry point, state, and runtime asset lookup
+- `src/audio`: audio input, analysis, and oscilloscope music generation
+- `src/config`: configuration serialization and application mapping
+- `src/rendering`: OpenGL resources, visualization geometry, and frame rendering
+- `src/ui`: UI coordination and individual panel implementations
+- `src/export`: offline video rendering
+- `src/platform`: operating-system-specific statistics
+- `assets`: shaders, images, and optional bundled fonts
+- `third_party`: vendored source dependencies
+- `tests`: standalone unit tests
+
 ---
 
 ## 1. Windows (Standalone) 🪟
@@ -51,10 +64,24 @@ cmake --build build --config Release
 ```
 
 ### Installer (Optional)
-To build the `.exe` installer (requires **Inno Setup 6**):
+Run the build script without arguments for an interactive menu:
 ```cmd
 .\build_installer.bat
 ```
+
+It can also be used directly from a terminal:
+
+```cmd
+.\build_installer.bat debug
+.\build_installer.bat build Release
+.\build_installer.bat test Debug
+.\build_installer.bat package Release
+.\build_installer.bat installer
+```
+
+The `installer` option requires **Inno Setup 6**. Use
+`build_installer.bat help` for all available commands. The script uses an
+existing `build-vs17` configuration when present, otherwise it uses `build`.
 
 ---
 

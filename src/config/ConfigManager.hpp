@@ -3,7 +3,6 @@
 
 #include <string>
 #include <vector>
-#include "Visualizer.hpp"
 
 struct ConfigLayer {
     std::string name;
@@ -33,6 +32,7 @@ struct ConfigLayer {
     float fillOpacity = 0.0f;
     float beamHeadSize = 0.0f;
     float velocityModulation = 0.0f;
+    bool xyAutoGain = false;
     int audioChannel = 0; // 0=Mixed, 1=Left, 2=Right
     int barAnchor = 0; // 0=Bottom, 1=Top, 2=Left, 3=Right, 4=Center
 };

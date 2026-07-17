@@ -37,7 +37,7 @@ void main() {
     color *= scanline;
 
     // slight gamma to emulate phosphor nonlinear brightness
-    color = pow(color, vec3(0.9));
+    color = pow(max(color, vec3(0.0)), vec3(0.9));
 
     FragColor = vec4(color, 1.0);
 }

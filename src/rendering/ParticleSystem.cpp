@@ -1,20 +1,8 @@
 #include "ParticleSystem.hpp"
+#include "AssetPaths.hpp"
 #include <iostream>
 #include <algorithm>
 #include <random>
-#include <fstream>
-#include <sstream>
-
-static std::string loadShaderSource(const std::string& path) {
-    std::ifstream f(path);
-    if (!f.is_open()) {
-        std::cerr << "Failed to open shader file: " << path << std::endl;
-        return std::string();
-    }
-    std::stringstream ss;
-    ss << f.rdbuf();
-    return ss.str();
-}
 
 
 ParticleSystem::ParticleSystem() {
@@ -24,7 +12,6 @@ ParticleSystem::ParticleSystem() {
 ParticleSystem::~ParticleSystem() {
     glDeleteVertexArrays(1, &m_vao);
     glDeleteBuffers(1, &m_vbo);
-    glDeleteProgram(m_shaderProgram);
 }
 
 void ParticleSystem::init() {
@@ -37,43 +24,9 @@ void ParticleSystem::init() {
 }
 
 void ParticleSystem::initShaders() {
-    GLint success;
-    char infoLog[512];
-    std::string vertSrc = loadShaderSource("shaders/particles.vert");
-    std::string fragSrc = loadShaderSource("shaders/particles.frag");
-    const char* particleVertexShaderSource = vertSrc.c_str();
-    const char* particleFragmentShaderSource = fragSrc.c_str();
-
-    GLuint vertexShader = glCreateShader(GL_VERTEX_SHADER);
-    glShaderSource(vertexShader, 1, &particleVertexShaderSource, NULL);
-    glCompileShader(vertexShader);
-    glGetShaderiv(vertexShader, GL_COMPILE_STATUS, &success);
-    if (!success) {
-        glGetShaderInfoLog(vertexShader, 512, NULL, infoLog);
-        std::cerr << "ERROR::SHADER::PARTICLE::VERTEX::COMPILATION_FAILED\n" << infoLog << std::endl;
-    }
-
-    GLuint fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
-    glShaderSource(fragmentShader, 1, &particleFragmentShaderSource, NULL);
-    glCompileShader(fragmentShader);
-    glGetShaderiv(fragmentShader, GL_COMPILE_STATUS, &success);
-    if (!success) {
-        glGetShaderInfoLog(fragmentShader, 512, NULL, infoLog);
-        std::cerr << "ERROR::SHADER::PARTICLE::FRAGMENT::COMPILATION_FAILED\n" << infoLog << std::endl;
-    }
-
-    m_shaderProgram = glCreateProgram();
-    glAttachShader(m_shaderProgram, vertexShader);
-    glAttachShader(m_shaderProgram, fragmentShader);
-    glLinkProgram(m_shaderProgram);
-    glGetProgramiv(m_shaderProgram, GL_LINK_STATUS, &success);
-    if (!success) {
-        glGetProgramInfoLog(m_shaderProgram, 512, NULL, infoLog);
-        std::cerr << "ERROR::SHADER::PARTICLE::PROGRAM::LINKING_FAILED\n" << infoLog << std::endl;
-    }
-
-    glDeleteShader(vertexShader);
-    glDeleteShader(fragmentShader);
+    m_shaderProgram.load(
+        AssetPaths::shader("particles.vert"),
+        AssetPaths::shader("particles.frag"));
 }
 
 void ParticleSystem::update(float deltaTime, bool beatDetected) {

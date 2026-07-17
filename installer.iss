@@ -42,8 +42,8 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 Source: "dist\{#AppExeName}"; DestDir: "{app}"; Flags: ignoreversion
 ; Runtime dependencies
 Source: "dist\glew32.dll"; DestDir: "{app}"; Flags: ignoreversion
-; Shaders
-Source: "dist\shaders\*"; DestDir: "{app}\shaders"; Flags: ignoreversion recursesubdirs createallsubdirs
+; Runtime assets
+Source: "dist\assets\*"; DestDir: "{app}\assets"; Flags: ignoreversion recursesubdirs createallsubdirs
 ; Documentation (if exists)
 ; Source: "README.md"; DestDir: "{app}"; Flags: ignoreversion isreadme
 

@@ -1,6 +1,13 @@
 #include "RenderManager.hpp"
 #include <algorithm>
+#include <cmath>
 #include <iostream>
+
+static float frameIndependentDecay(float decayAt60Fps, float deltaTime) {
+    const float decay = std::clamp(decayAt60Fps, 0.0f, 1.0f);
+    if (decay >= 1.0f) return 1.0f;
+    return 1.0f - std::pow(1.0f - decay, std::max(deltaTime, 0.0f) * 60.0f);
+}
 
 void RenderManager::renderFrame(
     AppState& state,
@@ -104,9 +111,8 @@ void RenderManager::renderToTarget(
         }
 
         if (usePersistence) {
-            float decayFactor = state.phosphorDecay * (deltaTime * 60.0f);
-            if (decayFactor > 1.0f) decayFactor = 1.0f;
-            visualizer.drawFullscreenDimmer(decayFactor); 
+            visualizer.drawFullscreenDimmer(
+                frameIndependentDecay(state.phosphorDecay, deltaTime));
         } else {
             glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
             glClear(GL_COLOR_BUFFER_BIT);
@@ -255,7 +261,8 @@ void RenderManager::renderOfflineFrame(
         }
 
         if (usePersistence) {
-            visualizer.drawFullscreenDimmer(state.phosphorDecay); 
+            visualizer.drawFullscreenDimmer(
+                frameIndependentDecay(state.phosphorDecay, deltaTime));
         } else {
             glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
             glClear(GL_COLOR_BUFFER_BIT);
@@ -326,6 +333,52 @@ void RenderManager::renderOfflineFrame(
     }
 }
 
+static size_t findXYTriggerFrame(const std::vector<float>& stereo) {
+    const size_t frameCount = stereo.size() / 2;
+    const size_t searchFrames = std::min<size_t>(frameCount > 1 ? frameCount - 1 : 0, 512);
+    if (searchFrames == 0) return 0;
+
+    double sumSquares = 0.0;
+    for (size_t i = 0; i < searchFrames; ++i) {
+        const float sample = stereo[i * 2];
+        sumSquares += static_cast<double>(sample) * sample;
+    }
+    const float rms = std::sqrt(static_cast<float>(sumSquares / searchFrames));
+    const float hysteresis = std::max(1e-4f, rms * 0.1f);
+    bool armed = stereo[0] < -hysteresis;
+    for (size_t i = 0; i < searchFrames; ++i) {
+        const float current = stereo[i * 2];
+        const float next = stereo[(i + 1) * 2];
+        if (current < -hysteresis) armed = true;
+        if (armed && current <= 0.0f && next > 0.0f) return i;
+    }
+    return 0;
+}
+
+static std::vector<float> makeXYRenderData(
+    AudioEngine& audioEngine,
+    const std::vector<float>* offlineStereo,
+    size_t requestFrames,
+    float globalGain
+) {
+    std::vector<float> stereo;
+    if (offlineStereo) {
+        stereo = *offlineStereo;
+    } else {
+        audioEngine.getStereoBuffer(stereo, 8192);
+        if (globalGain != 1.0f) {
+            for (float& sample : stereo) sample *= globalGain;
+        }
+    }
+    if (stereo.size() < 4) return {};
+
+    const size_t triggerSample = findXYTriggerFrame(stereo) * 2;
+    const size_t copySize = std::min(stereo.size() - triggerSample, requestFrames * 2);
+    return std::vector<float>(
+        stereo.begin() + triggerSample,
+        stereo.begin() + triggerSample + copySize);
+}
+
 void RenderManager::renderPersistentLayers(
     AppState& state,
     AudioEngine& audioEngine,
@@ -336,27 +389,10 @@ void RenderManager::renderPersistentLayers(
         if (!layer.visible || !layer.useLayerPersistence) continue;
         if (layer.shape != VisualizerShape::OscilloscopeXY && layer.shape != VisualizerShape::OscilloscopeXY_Clean) continue;
 
-        std::vector<float> renderData;
         size_t requestFrames = (size_t)(2048 * layer.timeScale);
-        std::vector<float> stereo;
-        
-        if (offlineStereo) {
-            stereo = *offlineStereo;
-        } else {
-            audioEngine.getStereoBuffer(stereo, 8192);
-            if (state.globalGain != 1.0f) {
-                for (auto& s : stereo) s *= state.globalGain;
-            }
-        }
-        
-        size_t triggerOffset = 0;
-        for (size_t i = 0; i < 512 && (i + 1) * 2 < stereo.size(); ++i) {
-            if (stereo[i * 2] < 0.0f && stereo[(i + 1) * 2] >= 0.05f) {
-                triggerOffset = i * 2; break;
-            }
-        }
-        size_t copySize = std::min(stereo.size() - triggerOffset, requestFrames * 2);
-        renderData.assign(stereo.begin() + triggerOffset, stereo.begin() + triggerOffset + copySize);
+        std::vector<float> renderData = makeXYRenderData(
+            audioEngine, offlineStereo, requestFrames, state.globalGain);
+        if (renderData.empty()) continue;
 
         visualizer.setColor(layer.color[0], layer.color[1], layer.color[2], layer.color[3]);
         visualizer.setHeightScale(layer.barHeight);
@@ -371,6 +407,7 @@ void RenderManager::renderPersistentLayers(
         visualizer.setFillOpacity(layer.fillOpacity);
         visualizer.setBeamHeadSize(layer.beamHeadSize);
         visualizer.setVelocityModulation(layer.velocityModulation);
+        visualizer.setXYAutoGain(layer.xyAutoGain);
         visualizer.setOffset(layer.xOffset, layer.yOffset);
         visualizer.setScale(layer.xScale, layer.yScale);
         visualizer.setPersistenceEnabled(layer.useLayerPersistence);
@@ -393,7 +430,13 @@ void RenderManager::renderDirectLayers(
         if ((layer.shape == VisualizerShape::OscilloscopeXY || layer.shape == VisualizerShape::OscilloscopeXY_Clean) && layer.useLayerPersistence) continue;
 
         std::vector<float> renderData;
-        if (layer.shape == VisualizerShape::Waveform) {
+        if (layer.shape == VisualizerShape::OscilloscopeXY ||
+            layer.shape == VisualizerShape::OscilloscopeXY_Clean) {
+            renderData = makeXYRenderData(
+                audioEngine, offlineStereo,
+                static_cast<size_t>(2048 * layer.timeScale), state.globalGain);
+            if (renderData.empty()) continue;
+        } else if (layer.shape == VisualizerShape::Waveform) {
             std::vector<float> channelBuffer;
             if (offlineStereo) {
                 // Extract channel from offline stereo buffer
@@ -449,6 +492,7 @@ void RenderManager::renderDirectLayers(
         visualizer.setFillOpacity(layer.fillOpacity);
         visualizer.setBeamHeadSize(layer.beamHeadSize);
         visualizer.setVelocityModulation(layer.velocityModulation);
+        visualizer.setXYAutoGain(layer.xyAutoGain);
         visualizer.setOffset(layer.xOffset, layer.yOffset);
         visualizer.setScale(layer.xScale, layer.yScale);
         visualizer.setPersistenceEnabled(layer.useLayerPersistence);

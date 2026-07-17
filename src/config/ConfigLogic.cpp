@@ -87,6 +87,7 @@ void ConfigLogic::saveSettings(const AppState& state) {
         cl.fillOpacity = l.fillOpacity;
         cl.beamHeadSize = l.beamHeadSize;
         cl.velocityModulation = l.velocityModulation;
+        cl.xyAutoGain = l.xyAutoGain;
         cl.audioChannel = (int)l.channel;
         cl.barAnchor = (int)l.barAnchor;
         config.layers.push_back(cl);
@@ -160,6 +161,7 @@ void ConfigLogic::loadSettings(AppState& state) {
                 l.fillOpacity = cl.fillOpacity;
                 l.beamHeadSize = cl.beamHeadSize;
                 l.velocityModulation = cl.velocityModulation;
+                l.xyAutoGain = cl.xyAutoGain;
                 l.channel = (AudioChannel)cl.audioChannel;
                 l.barAnchor = (BarAnchor)cl.barAnchor;
                 state.layers.push_back(l);
