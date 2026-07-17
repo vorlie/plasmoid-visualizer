@@ -182,11 +182,13 @@ void UIManager::renderAudioSettings(AppState& state, AudioEngine& audioEngine, O
             ImGui::Text("Oscilloscope Music Editor");
             static char xExpr[256] = "sin(f * t * 2 * 3.14159)";
             static char yExpr[256] = "cos(f * t * 2 * 3.14159)";
+            static char zExpr[256] = "1";
             static float duration = 2.0f;
             static float baseFreq = 440.0f;
             
-            if (ImGui::InputText("X(t) Expression", xExpr, sizeof(xExpr))) oscMusicEditor.setExpressions(xExpr, yExpr);
-            if (ImGui::InputText("Y(t) Expression", yExpr, sizeof(yExpr))) oscMusicEditor.setExpressions(xExpr, yExpr);
+            if (ImGui::InputText("X(t) Expression", xExpr, sizeof(xExpr))) oscMusicEditor.setExpressions(xExpr, yExpr, zExpr);
+            if (ImGui::InputText("Y(t) Expression", yExpr, sizeof(yExpr))) oscMusicEditor.setExpressions(xExpr, yExpr, zExpr);
+            if (ImGui::InputText("Z(t) Intensity", zExpr, sizeof(zExpr))) oscMusicEditor.setExpressions(xExpr, yExpr, zExpr);
             if (ImGui::SliderFloat("Base Frequency (f)", &baseFreq, 20.0f, 2000.0f, "%.1f Hz")) oscMusicEditor.setBaseFrequency(baseFreq);
             ImGui::SliderFloat("Duration (s)", &duration, 0.5f, 10.0f);
             
@@ -229,8 +231,8 @@ void UIManager::renderAudioSettings(AppState& state, AudioEngine& audioEngine, O
 
             if (ImGui::Button("Preview")) {
                 if (oscMusicEditor.isValid()) {
-                    std::vector<float> buffer = oscMusicEditor.generateStereoBuffer(duration, 192000);
-                    audioEngine.setOscMusicBuffer(buffer);
+                    OscMusicBuffer buffer = oscMusicEditor.generateXYBuffer(duration, 192000);
+                    audioEngine.setOscMusicBuffer(buffer.stereo, buffer.z);
                     audioEngine.initOscMusic(192000);
                     audioEngine.setOscMusicMode(true);
                     audioEngine.play();
@@ -250,6 +252,7 @@ void UIManager::renderAudioSettings(AppState& state, AudioEngine& audioEngine, O
                     oscMusicEditor.loadPreset(i);
                     strncpy(xExpr, oscMusicEditor.getXExpression().c_str(), sizeof(xExpr));
                     strncpy(yExpr, oscMusicEditor.getYExpression().c_str(), sizeof(yExpr));
+                    strncpy(zExpr, oscMusicEditor.getZExpression().c_str(), sizeof(zExpr));
                 }
                 if ((i + 1) % 4 != 0) ImGui::SameLine();
             }

@@ -9,6 +9,12 @@ static float frameIndependentDecay(float decayAt60Fps, float deltaTime) {
     return 1.0f - std::pow(1.0f - decay, std::max(deltaTime, 0.0f) * 60.0f);
 }
 
+static float phosphorDecay(const OscilloscopeDisplaySettings& settings, float deltaTime) {
+    const float seconds = std::max(deltaTime, 0.0f);
+    const float fast = std::exp(-seconds * 1000.0f / std::max(settings.phosphorFastDecayMs, 1.0f));
+    return 1.0f - std::clamp(fast, 0.0f, 1.0f);
+}
+
 void RenderManager::renderFrame(
     AppState& state,
     AudioEngine& audioEngine,
@@ -120,8 +126,7 @@ void RenderManager::renderToTarget(
         }
 
         if (usePersistence) {
-            visualizer.drawFullscreenDimmer(
-                frameIndependentDecay(state.phosphorDecay, deltaTime));
+            visualizer.drawFullscreenDimmer(phosphorDecay(state.oscilloscopeDisplay, deltaTime));
         } else {
             glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
             glClear(GL_COLOR_BUFFER_BIT);
@@ -143,6 +148,18 @@ void RenderManager::renderToTarget(
         
         visualizer.endPersistence();
 
+        // The regular persistence target is the focused, fast phosphor.  Feed
+        // a separately decaying history at low energy for the CRT afterglow.
+        m_slowPhosphorBuffer.resize(width, height);
+        m_slowPhosphorBuffer.bind();
+        glViewport(0, 0, width, height);
+        visualizer.drawFullscreenDimmer(1.0f - std::exp(-std::max(deltaTime, 0.0f) * 1000.0f /
+            std::max(state.oscilloscopeDisplay.phosphorSlowDecayMs, 1.0f)));
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE);
+        visualizer.drawTexture(visualizer.persistenceTexture(), 0.08f);
+        Framebuffer::unbind();
+
         // 2. SCENE PASS: combine persistent and direct layers in HDR before
         // displaying them. This lets bloom work even when persistence is off.
         m_sceneBuffer.resize(width, height);
@@ -151,9 +168,17 @@ void RenderManager::renderToTarget(
         glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT);
 
+        if (state.oscilloscopeDisplay.graticuleEnabled) {
+            visualizer.setGridEnabled(true);
+            visualizer.setGridDivisions(state.oscilloscopeDisplay.graticuleColumns, state.oscilloscopeDisplay.graticuleRows);
+            visualizer.setColor(0.3f, 0.75f, 0.55f, state.oscilloscopeDisplay.graticuleOpacity);
+            visualizer.renderGrid();
+        }
+
         glEnable(GL_BLEND);
         glBlendFunc(GL_ONE, GL_ONE);
         visualizer.drawPersistenceBuffer();
+        visualizer.drawTexture(m_slowPhosphorBuffer.texture(), state.oscilloscopeDisplay.phosphorSlowWeight);
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
         renderDirectLayers(state, audioEngine, analysisEngine, visualizer);
 
@@ -214,7 +239,9 @@ void RenderManager::renderOfflineFrame(
     ParticleSystem& particleSystem,
     int width,
     int height,
-    float deltaTime
+    float deltaTime,
+    std::uint64_t audioStartFrame,
+    std::uint32_t sampleRate
 ) {
     bool isBeat = false;
 
@@ -290,8 +317,7 @@ void RenderManager::renderOfflineFrame(
         }
 
         if (usePersistence) {
-            visualizer.drawFullscreenDimmer(
-                frameIndependentDecay(state.phosphorDecay, deltaTime));
+            visualizer.drawFullscreenDimmer(phosphorDecay(state.oscilloscopeDisplay, deltaTime));
         } else {
             glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
             glClear(GL_COLOR_BUFFER_BIT);
@@ -305,15 +331,46 @@ void RenderManager::renderOfflineFrame(
         glEnable(GL_BLEND);
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
-        // For persistent layers (oscilloscopes), use stereoBuffer
+        XYInputChunk offlineContinuous;
+        offlineContinuous.firstFrame = audioStartFrame;
+        offlineContinuous.sampleRate = sampleRate;
+        offlineContinuous.discontinuityGeneration = 1;
+        const size_t continuousFrames = std::min(
+            stereoBuffer.size() / 2,
+            static_cast<size_t>(std::ceil(deltaTime * sampleRate)));
+        offlineContinuous.samples.reserve(continuousFrames);
+        for (size_t i = 0; i < continuousFrames; ++i) {
+            offlineContinuous.samples.push_back({stereoBuffer[i * 2], stereoBuffer[i * 2 + 1], 1.0f});
+        }
+
+        XYInputChunk offlineSnapshot;
+        offlineSnapshot.firstFrame = audioStartFrame;
+        offlineSnapshot.sampleRate = sampleRate;
+        offlineSnapshot.discontinuityGeneration = 1;
+        offlineSnapshot.samples.reserve(stereoBuffer.size() / 2);
+        for (size_t i = 0; i < stereoBuffer.size() / 2; ++i) {
+            offlineSnapshot.samples.push_back({stereoBuffer[i * 2], stereoBuffer[i * 2 + 1], 1.0f});
+        }
+
+        // For persistent layers, consume exactly this video frame's samples.
         AudioEngine dummyAudio; // Not used in offline path
-        renderPersistentLayers(state, dummyAudio, visualizer, &stereoBuffer);
+        renderPersistentLayers(state, dummyAudio, visualizer, &offlineContinuous);
 
         if (state.particlesEnabled) {
             particleSystem.render();
         }
         
         visualizer.endPersistence();
+
+        m_slowPhosphorBuffer.resize(width, height);
+        m_slowPhosphorBuffer.bind();
+        glViewport(0, 0, width, height);
+        visualizer.drawFullscreenDimmer(1.0f - std::exp(-std::max(deltaTime, 0.0f) * 1000.0f /
+            std::max(state.oscilloscopeDisplay.phosphorSlowDecayMs, 1.0f)));
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE);
+        visualizer.drawTexture(visualizer.persistenceTexture(), 0.08f);
+        Framebuffer::unbind();
 
         // 2. HDR scene pass.
         m_sceneBuffer.resize(width, height);
@@ -322,11 +379,19 @@ void RenderManager::renderOfflineFrame(
         glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT);
 
+        if (state.oscilloscopeDisplay.graticuleEnabled) {
+            visualizer.setGridEnabled(true);
+            visualizer.setGridDivisions(state.oscilloscopeDisplay.graticuleColumns, state.oscilloscopeDisplay.graticuleRows);
+            visualizer.setColor(0.3f, 0.75f, 0.55f, state.oscilloscopeDisplay.graticuleOpacity);
+            visualizer.renderGrid();
+        }
+
         glEnable(GL_BLEND);
         glBlendFunc(GL_ONE, GL_ONE);
         visualizer.drawPersistenceBuffer();
+        visualizer.drawTexture(m_slowPhosphorBuffer.texture(), state.oscilloscopeDisplay.phosphorSlowWeight);
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-        renderDirectLayers(state, dummyAudio, analysisEngine, visualizer, &stereoBuffer, &monoBuffer);
+        renderDirectLayers(state, dummyAudio, analysisEngine, visualizer, &offlineSnapshot, &monoBuffer);
 
         // 3. Output to the offline capture framebuffer.
         glBindFramebuffer(GL_FRAMEBUFFER, static_cast<GLuint>(targetFramebuffer));
@@ -370,86 +435,44 @@ void RenderManager::renderOfflineFrame(
     }
 }
 
-static size_t findXYTriggerFrame(const std::vector<float>& stereo) {
-    const size_t frameCount = stereo.size() / 2;
-    const size_t searchFrames = std::min<size_t>(frameCount > 1 ? frameCount - 1 : 0, 512);
-    if (searchFrames == 0) return 0;
-
-    double sumSquares = 0.0;
-    for (size_t i = 0; i < searchFrames; ++i) {
-        const float sample = stereo[i * 2];
-        sumSquares += static_cast<double>(sample) * sample;
-    }
-    const float rms = std::sqrt(static_cast<float>(sumSquares / searchFrames));
-    const float hysteresis = std::max(1e-4f, rms * 0.1f);
-    bool armed = stereo[0] < -hysteresis;
-    for (size_t i = 0; i < searchFrames; ++i) {
-        const float current = stereo[i * 2];
-        const float next = stereo[(i + 1) * 2];
-        if (current < -hysteresis) armed = true;
-        if (armed && current <= 0.0f && next > 0.0f) return i;
-    }
-    return 0;
-}
-
-static std::vector<float> makeXYRenderData(
-    AudioEngine& audioEngine,
-    const std::vector<float>* offlineStereo,
-    size_t requestFrames,
-    float globalGain
-) {
-    std::vector<float> stereo;
-    if (offlineStereo) {
-        stereo = *offlineStereo;
-    } else {
-        audioEngine.getStereoBuffer(stereo, 8192);
-        if (globalGain != 1.0f) {
-            for (float& sample : stereo) sample *= globalGain;
-        }
-    }
-    if (stereo.size() < 4) return {};
-
-    const size_t triggerSample = findXYTriggerFrame(stereo) * 2;
-    const size_t copySize = std::min(stereo.size() - triggerSample, requestFrames * 2);
-    return std::vector<float>(
-        stereo.begin() + triggerSample,
-        stereo.begin() + triggerSample + copySize);
-}
-
 void RenderManager::renderPersistentLayers(
     AppState& state,
     AudioEngine& audioEngine,
     Visualizer& visualizer,
-    const std::vector<float>* offlineStereo
+    const XYInputChunk* offlineXY
 ) {
     for (auto& layer : state.layers) {
         if (!layer.visible || !layer.useLayerPersistence) continue;
         if (layer.shape != VisualizerShape::OscilloscopeXY && layer.shape != VisualizerShape::OscilloscopeXY_Clean) continue;
 
-        size_t requestFrames = (size_t)(2048 * layer.timeScale);
-        std::vector<float> renderData = makeXYRenderData(
-            audioEngine, offlineStereo, requestFrames, state.globalGain);
-        if (renderData.empty()) continue;
+        if (layer.id == 0) layer.id = state.allocateLayerId();
+        XYInputChunk input;
+        if (offlineXY) {
+            input = *offlineXY;
+        } else {
+            auto cursor = m_xyCursors.find(layer.id);
+            if (cursor == m_xyCursors.end()) {
+                m_xyCursors[layer.id] = audioEngine.latestXYFrame();
+                continue;
+            }
+            input = audioEngine.readXYSince(cursor->second, 32768);
+            cursor->second = input.firstFrame + input.samples.size();
+        }
+        if (state.globalGain != 1.0f) {
+            for (auto& sample : input.samples) { sample.x *= state.globalGain; sample.y *= state.globalGain; }
+        }
+        if (input.samples.empty()) continue;
+
+        layer.xy.persistence = true;
+        auto trace = m_xyEngine.processContinuous(
+            layer.id, layer.xy, input, visualizer.viewportWidth(), visualizer.viewportHeight());
+        layer.xyMeasurements = trace.measurements;
 
         visualizer.setColor(layer.color[0], layer.color[1], layer.color[2], layer.color[3]);
-        visualizer.setHeightScale(layer.barHeight);
-        visualizer.setMirrored(layer.mirrored);
         visualizer.setShape(layer.shape);
-        visualizer.setCornerRadius(layer.cornerRadius);
-        visualizer.setRotation(layer.rotation * 3.14159f / 180.0f);
-        visualizer.setFlip(layer.flipX, layer.flipY);
-        visualizer.setBloomIntensity(layer.bloom);
-        visualizer.setGridEnabled(layer.showGrid);
-        visualizer.setTraceWidth(layer.traceWidth);
-        visualizer.setFillOpacity(layer.fillOpacity);
-        visualizer.setBeamHeadSize(layer.beamHeadSize);
-        visualizer.setVelocityModulation(layer.velocityModulation);
-        visualizer.setXYAutoGain(layer.xyAutoGain);
-        visualizer.setOffset(layer.xOffset, layer.yOffset);
-        visualizer.setScale(layer.xScale, layer.yScale);
-        visualizer.setPersistenceEnabled(layer.useLayerPersistence);
-        visualizer.setBarAnchor(layer.barAnchor);
-        visualizer.render(renderData);
+        visualizer.setBloomIntensity(layer.xy.bloom);
+        visualizer.setTraceWidth(layer.xy.traceWidth);
+        visualizer.renderXY(trace);
     }
 }
 
@@ -458,7 +481,7 @@ void RenderManager::renderDirectLayers(
     AudioEngine& audioEngine,
     AnalysisEngine& analysisEngine,
     Visualizer& visualizer,
-    const std::vector<float>* offlineStereo,
+    const XYInputChunk* offlineXY,
     const std::vector<float>* offlineMono
 ) {
     for (auto& layer : state.layers) {
@@ -469,23 +492,34 @@ void RenderManager::renderDirectLayers(
         std::vector<float> renderData;
         if (layer.shape == VisualizerShape::OscilloscopeXY ||
             layer.shape == VisualizerShape::OscilloscopeXY_Clean) {
-            renderData = makeXYRenderData(
-                audioEngine, offlineStereo,
-                static_cast<size_t>(2048 * layer.timeScale), state.globalGain);
-            if (renderData.empty()) continue;
+            if (layer.id == 0) layer.id = state.allocateLayerId();
+            XYInputChunk input = offlineXY ? *offlineXY : audioEngine.snapshotXY(8192);
+            if (state.globalGain != 1.0f) {
+                for (auto& sample : input.samples) { sample.x *= state.globalGain; sample.y *= state.globalGain; }
+            }
+            if (input.samples.empty()) continue;
+            layer.xy.persistence = false;
+            auto trace = m_xyEngine.processTriggered(
+                layer.id, layer.xy, input, visualizer.viewportWidth(), visualizer.viewportHeight());
+            layer.xyMeasurements = trace.measurements;
+            visualizer.setColor(layer.color[0], layer.color[1], layer.color[2], layer.color[3]);
+            visualizer.setShape(layer.shape);
+            visualizer.setBloomIntensity(layer.xy.bloom);
+            visualizer.setTraceWidth(layer.xy.traceWidth);
+            visualizer.renderXY(trace);
+            continue;
         } else if (layer.shape == VisualizerShape::Waveform) {
             std::vector<float> channelBuffer;
-            if (offlineStereo) {
+            if (offlineXY) {
                 // Extract channel from offline stereo buffer
-                channelBuffer.resize(offlineStereo->size() / 2);
+                channelBuffer.resize(offlineXY->samples.size());
                 int channelIdx = (int)layer.channel;
                 if (channelIdx == 0) { // Mixed
                     for(size_t i=0; i<channelBuffer.size(); ++i) 
-                        channelBuffer[i] = ((*offlineStereo)[i*2] + (*offlineStereo)[i*2+1]) * 0.5f;
+                        channelBuffer[i] = (offlineXY->samples[i].x + offlineXY->samples[i].y) * 0.5f;
                 } else {
-                    int offset = (channelIdx == 1) ? 0 : 1;
-                    for(size_t i=0; i<channelBuffer.size(); ++i) 
-                        channelBuffer[i] = (*offlineStereo)[i*2 + offset];
+                    for(size_t i=0; i<channelBuffer.size(); ++i)
+                        channelBuffer[i] = channelIdx == 1 ? offlineXY->samples[i].x : offlineXY->samples[i].y;
                 }
             } else {
                 audioEngine.getChannelBuffer(channelBuffer, 8192, (int)layer.channel);

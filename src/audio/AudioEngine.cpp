@@ -5,6 +5,28 @@
 #include <cmath>
 
 AudioEngine::AudioEngine() {
+    m_stereoBuffer.resize(65536 * 2, 0.0f);
+    m_zBuffer.resize(65536, 1.0f);
+    m_zValidBuffer.resize(65536, 0);
+}
+
+void AudioEngine::writeXYFrameUnlocked(float x, float y, float z, bool hasZ) {
+    const size_t capacity = m_stereoBuffer.size() / 2;
+    if (capacity == 0) return;
+    const size_t slot = static_cast<size_t>(m_xyFrameCounter % capacity);
+    m_stereoBuffer[slot * 2] = x;
+    m_stereoBuffer[slot * 2 + 1] = y;
+    m_zBuffer[slot] = z;
+    m_zValidBuffer[slot] = hasZ ? 1 : 0;
+    ++m_xyFrameCounter;
+    m_xyValidFrames = std::min(m_xyValidFrames + 1, capacity);
+    m_stereoWritePos = static_cast<size_t>((m_xyFrameCounter % capacity) * 2);
+}
+
+void AudioEngine::markXYDiscontinuity() {
+    std::lock_guard<std::mutex> lock(m_bufferMutex);
+    ++m_xyDiscontinuityGeneration;
+    m_xyValidFrames = 0;
 }
 
 AudioEngine::~AudioEngine() {
@@ -73,9 +95,7 @@ void AudioEngine::dataCallback(ma_device* pDevice, void* pOutput, const void* pI
                 pEngine->m_writePos = (pEngine->m_writePos + 1) % pEngine->m_circularBuffer.size();
 
                 // Write to stereo buffer
-                pEngine->m_stereoBuffer[pEngine->m_stereoWritePos] = sampleLeft;
-                pEngine->m_stereoBuffer[(pEngine->m_stereoWritePos + 1) % pEngine->m_stereoBuffer.size()] = sampleRight;
-                pEngine->m_stereoWritePos = (pEngine->m_stereoWritePos + 2) % pEngine->m_stereoBuffer.size();
+                pEngine->writeXYFrameUnlocked(sampleLeft, sampleRight);
 
                 // Advance phases
                 pEngine->m_testTonePhase += 2.0f * M_PI * pEngine->m_testToneFrequency / 44100.0f;
@@ -99,16 +119,20 @@ void AudioEngine::dataCallback(ma_device* pDevice, void* pOutput, const void* pI
             for (ma_uint32 i = 0; i < frameCount; ++i) {
                 float sampleL = 0.0f;
                 float sampleR = 0.0f;
+                float sampleZ = 1.0f;
                 
                 if (pEngine->m_oscMusicReadPos + 1 < pEngine->m_oscMusicBuffer.size()) {
+                    const size_t frame = pEngine->m_oscMusicReadPos / 2;
                     sampleL = pEngine->m_oscMusicBuffer[pEngine->m_oscMusicReadPos];
                     sampleR = pEngine->m_oscMusicBuffer[pEngine->m_oscMusicReadPos + 1];
+                    if (frame < pEngine->m_oscMusicZBuffer.size()) sampleZ = pEngine->m_oscMusicZBuffer[frame];
                     pEngine->m_oscMusicReadPos += 2;
                 } else {
                     // Loop or stop? Let's loop for preview
                     pEngine->m_oscMusicReadPos = 0;
                     sampleL = pEngine->m_oscMusicBuffer[0];
                     sampleR = pEngine->m_oscMusicBuffer[1];
+                    if (!pEngine->m_oscMusicZBuffer.empty()) sampleZ = pEngine->m_oscMusicZBuffer[0];
                     pEngine->m_oscMusicReadPos = 2;
                 }
 
@@ -121,9 +145,7 @@ void AudioEngine::dataCallback(ma_device* pDevice, void* pOutput, const void* pI
                 pEngine->m_writePos = (pEngine->m_writePos + 1) % pEngine->m_circularBuffer.size();
 
                 if (pEngine->m_stereoBuffer.size() < 16384) pEngine->m_stereoBuffer.resize(16384, 0.0f);
-                pEngine->m_stereoBuffer[pEngine->m_stereoWritePos] = sampleL;
-                pEngine->m_stereoBuffer[(pEngine->m_stereoWritePos + 1) % pEngine->m_stereoBuffer.size()] = sampleR;
-                pEngine->m_stereoWritePos = (pEngine->m_stereoWritePos + 2) % pEngine->m_stereoBuffer.size();
+                pEngine->writeXYFrameUnlocked(sampleL, sampleR, sampleZ, !pEngine->m_oscMusicZBuffer.empty());
             }
         }
         return;
@@ -159,9 +181,7 @@ void AudioEngine::dataCallback(ma_device* pDevice, void* pOutput, const void* pI
                 pEngine->m_writePos = (pEngine->m_writePos + 1) % pEngine->m_circularBuffer.size();
                 
                 // Stereo for XY
-                pEngine->m_stereoBuffer[pEngine->m_stereoWritePos] = left;
-                pEngine->m_stereoBuffer[(pEngine->m_stereoWritePos + 1) % pEngine->m_stereoBuffer.size()] = right;
-                pEngine->m_stereoWritePos = (pEngine->m_stereoWritePos + 2) % pEngine->m_stereoBuffer.size();
+                pEngine->writeXYFrameUnlocked(left, right);
             }
             return; // Skip the rest of the callback for capture
         }
@@ -218,9 +238,7 @@ void AudioEngine::dataCallback(ma_device* pDevice, void* pOutput, const void* pI
             pEngine->m_writePos = (pEngine->m_writePos + 1) % pEngine->m_circularBuffer.size();
 
             // Stereo Interleaved for XY
-            pEngine->m_stereoBuffer[pEngine->m_stereoWritePos] = left;
-            pEngine->m_stereoBuffer[(pEngine->m_stereoWritePos + 1) % pEngine->m_stereoBuffer.size()] = right;
-            pEngine->m_stereoWritePos = (pEngine->m_stereoWritePos + 2) % pEngine->m_stereoBuffer.size();
+            pEngine->writeXYFrameUnlocked(left, right);
         }
     }
 
@@ -254,20 +272,74 @@ bool AudioEngine::readAudioFrames(size_t offsetFrames, size_t count, std::vector
 
 void AudioEngine::getStereoBuffer(std::vector<float>& buffer, size_t frames) {
     std::lock_guard<std::mutex> lock(m_bufferMutex);
-    if (m_stereoBuffer.empty()) return;
-    
-    size_t samples = frames * 2;
-    buffer.resize(samples);
-    
-    // We want the most recent 'frames'
-    // m_stereoWritePos points to the next write slot (interleaved index)
-    
-    size_t bufferSize = m_stereoBuffer.size();
-    size_t readPos = (m_stereoWritePos + bufferSize - samples) % bufferSize;
-    
-    for (size_t i = 0; i < samples; ++i) {
-        buffer[i] = m_stereoBuffer[(readPos + i) % bufferSize];
+    const size_t count = std::min(frames, m_xyValidFrames);
+    buffer.resize(count * 2);
+    const std::uint64_t first = m_xyFrameCounter - count;
+    const size_t capacity = m_stereoBuffer.size() / 2;
+    for (size_t i = 0; i < count; ++i) {
+        const size_t slot = static_cast<size_t>((first + i) % capacity);
+        buffer[i * 2] = m_stereoBuffer[slot * 2];
+        buffer[i * 2 + 1] = m_stereoBuffer[slot * 2 + 1];
     }
+}
+
+XYInputChunk AudioEngine::readXYSince(std::uint64_t cursor, size_t maxFrames) const {
+    std::lock_guard<std::mutex> lock(m_bufferMutex);
+    XYInputChunk chunk;
+    chunk.sampleRate = getSampleRate();
+    chunk.discontinuityGeneration = m_xyDiscontinuityGeneration;
+    const std::uint64_t oldest = m_xyFrameCounter - m_xyValidFrames;
+    if (cursor < oldest) {
+        cursor = oldest;
+        chunk.dropped = true;
+    }
+    cursor = std::min(cursor, m_xyFrameCounter);
+    const size_t available = static_cast<size_t>(m_xyFrameCounter - cursor);
+    const size_t count = std::min(available, maxFrames);
+    chunk.firstFrame = m_xyFrameCounter - count;
+    if (available <= maxFrames) {
+        chunk.firstFrame = cursor;
+    } else {
+        chunk.dropped = true;
+    }
+    const size_t capacity = m_stereoBuffer.size() / 2;
+    chunk.samples.reserve(count);
+    for (size_t i = 0; i < count; ++i) {
+        const size_t slot = static_cast<size_t>((chunk.firstFrame + i) % capacity);
+        const bool hasZ = m_zValidBuffer[slot] != 0;
+        chunk.hasZ |= hasZ;
+        chunk.samples.push_back({
+            m_stereoBuffer[slot * 2],
+            m_stereoBuffer[slot * 2 + 1],
+            hasZ ? m_zBuffer[slot] : 1.0f});
+    }
+    return chunk;
+}
+
+XYInputChunk AudioEngine::snapshotXY(size_t frames) const {
+    std::lock_guard<std::mutex> lock(m_bufferMutex);
+    XYInputChunk chunk;
+    chunk.sampleRate = getSampleRate();
+    chunk.discontinuityGeneration = m_xyDiscontinuityGeneration;
+    const size_t count = std::min(frames, m_xyValidFrames);
+    chunk.firstFrame = m_xyFrameCounter - count;
+    const size_t capacity = m_stereoBuffer.size() / 2;
+    chunk.samples.reserve(count);
+    for (size_t i = 0; i < count; ++i) {
+        const size_t slot = static_cast<size_t>((chunk.firstFrame + i) % capacity);
+        const bool hasZ = m_zValidBuffer[slot] != 0;
+        chunk.hasZ |= hasZ;
+        chunk.samples.push_back({
+            m_stereoBuffer[slot * 2],
+            m_stereoBuffer[slot * 2 + 1],
+            hasZ ? m_zBuffer[slot] : 1.0f});
+    }
+    return chunk;
+}
+
+std::uint64_t AudioEngine::latestXYFrame() const {
+    std::lock_guard<std::mutex> lock(m_bufferMutex);
+    return m_xyFrameCounter;
 }
 
 void AudioEngine::resetDevice() {
@@ -280,6 +352,7 @@ void AudioEngine::resetDevice() {
     m_isPlaying = false;
     m_oscMusicMode = false;
     m_testTone = false;
+    markXYDiscontinuity();
 }
 
 bool AudioEngine::loadFile(const std::string& filePath) {
@@ -330,6 +403,7 @@ bool AudioEngine::loadFile(const std::string& filePath) {
     }
     m_isDeviceInitialized = true;
     m_isCaptureMode = false;
+    m_currentSampleRate = m_decoder.outputSampleRate;
     std::cout << "Audio device initialized: " << m_device.playback.name << std::endl;
     // ...
     return true;
@@ -365,6 +439,7 @@ bool AudioEngine::startCapture(const ma_device_id* pID, ma_device_type type) {
     m_isDeviceInitialized = true;
     m_isCaptureMode = true;
     m_isPlaying = true;
+    m_currentSampleRate = 48000;
     return true;
 }
 
@@ -392,6 +467,7 @@ bool AudioEngine::initTestTone() {
     m_isDeviceInitialized = true;
     m_isCaptureMode = false;
     m_testTone = true;
+    m_currentSampleRate = 44100;
     return true;
 }
 
@@ -415,6 +491,7 @@ bool AudioEngine::initOscMusic(int sampleRate) {
     }
     m_isDeviceInitialized = true;
     m_isCaptureMode = false;
+    m_currentSampleRate = static_cast<ma_uint32>(sampleRate);
     std::cout << "OscMusic initialized at " << sampleRate << "Hz" << std::endl;
     return true;
 }
@@ -466,6 +543,7 @@ void AudioEngine::seekTo(float seconds) {
     if (!m_isDecoderInitialized) return;
     ma_uint64 frameIndex = (ma_uint64)(seconds * m_decoder.outputSampleRate);
     ma_decoder_seek_to_pcm_frame(&m_decoder, frameIndex);
+    markXYDiscontinuity();
 }
 
 float AudioEngine::getDuration() const {
@@ -476,8 +554,7 @@ float AudioEngine::getDuration() const {
 }
 
 ma_uint32 AudioEngine::getSampleRate() const {
-    if (m_isDecoderInitialized) return m_decoder.outputSampleRate;
-    return 44100; // Default fallback
+    return m_currentSampleRate;
 }
 
 size_t AudioEngine::getChannels() const {

@@ -9,6 +9,12 @@ struct OscMusicPreset {
     std::string xExpr;
     std::string yExpr;
     float duration;
+    std::string zExpr = "1";
+};
+
+struct OscMusicBuffer {
+    std::vector<float> stereo;
+    std::vector<float> z;
 };
 
 class OscMusicEditor {
@@ -18,10 +24,12 @@ public:
 
     // Expression evaluation
     bool setExpressions(const std::string& xExpr, const std::string& yExpr);
+    bool setExpressions(const std::string& xExpr, const std::string& yExpr, const std::string& zExpr);
     bool validateExpressions(std::string& errorMsg);
     
     // Audio generation
     std::vector<float> generateStereoBuffer(float duration, int sampleRate = 192000);
+    OscMusicBuffer generateXYBuffer(float duration, int sampleRate = 192000);
     
     // Preset management
     void loadPreset(int index);
@@ -35,12 +43,14 @@ public:
     
     std::string getXExpression() const { return m_xExpr; }
     std::string getYExpression() const { return m_yExpr; }
+    std::string getZExpression() const { return m_zExpr; }
     std::string getErrorMessage() const { return m_lastError; }
     bool isValid() const { return m_isValid; }
 
 private:
     std::string m_xExpr;
     std::string m_yExpr;
+    std::string m_zExpr;
     std::string m_lastError;
     bool m_isValid;
     float m_baseFreq = 440.0f;
@@ -50,6 +60,7 @@ private:
     double m_evalF = 440.0;
     void* m_xParsed = nullptr;
     void* m_yParsed = nullptr;
+    void* m_zParsed = nullptr;
     
     std::vector<OscMusicPreset> m_presets;
     

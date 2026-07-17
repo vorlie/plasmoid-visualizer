@@ -6,6 +6,7 @@
 #include "Framebuffer.hpp"
 #include "Texture2D.hpp"
 #include "FontAtlas.hpp"
+#include "XYOscilloscopeTypes.hpp"
 #include <GL/glew.h>
 #include <vector>
 #include <string>
@@ -16,6 +17,7 @@ public:
     ~Visualizer();
 
     void render(const std::vector<float>& magnitudes);
+    void renderXY(const XYTraceBatch& trace);
     void renderGrid();
     void drawFullscreenDimmer(float decayRate);
     void setHeightScale(float scale);
@@ -24,10 +26,13 @@ public:
     void setShape(VisualizerShape shape);
     void setCornerRadius(float radius);
     void setViewportSize(int width, int height); // For aspect ratio correction
+    [[nodiscard]] int viewportWidth() const noexcept { return m_viewportWidth; }
+    [[nodiscard]] int viewportHeight() const noexcept { return m_viewportHeight; }
     void setRotation(float angleRadians); // For XY oscilloscope rotation
     void setFlip(bool flipX, bool flipY); // For XY oscilloscope flip
     void setBloomIntensity(float intensity); // For XY oscilloscope bloom
     void setGridEnabled(bool enabled) { m_showGrid = enabled; }
+    void setGridDivisions(int columns, int rows) { m_gridColumns = columns; m_gridRows = rows; }
     void setTraceWidth(float width) { m_traceWidth = width; }
     void setFillOpacity(float opacity) { m_fillOpacity = opacity; }
     void setBeamHeadSize(float size) { m_beamHeadSize = size; }
@@ -43,7 +48,7 @@ public:
     void beginPersistence();
     void endPersistence();
     void drawPersistenceBuffer();
-    void drawTexture(GLuint texture);
+    void drawTexture(GLuint texture, float opacity = 1.0f);
     [[nodiscard]] GLuint persistenceTexture() const noexcept {
         return m_persistenceBuffer.texture();
     }
@@ -72,6 +77,8 @@ private:
     bool m_flipY = false;
     float m_bloomIntensity = 1.0f;
     bool m_showGrid = true;
+    int m_gridColumns = 10;
+    int m_gridRows = 8;
     float m_traceWidth = 2.0f;
     float m_fillOpacity = 0.0f; // 0.0 = no fill, 1.0 = solid fill
     float m_beamHeadSize = 0.0f; // 0.0 = disabled

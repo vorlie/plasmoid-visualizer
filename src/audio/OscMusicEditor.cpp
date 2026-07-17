@@ -35,6 +35,7 @@ static double te_saw_hz(double f, double t) { double p = f * t; return 2.0 * (p 
 OscMusicEditor::OscMusicEditor() 
     : m_xExpr("sin(t * 2 * 3.14159)"),
       m_yExpr("cos(t * 2 * 3.14159)"),
+      m_zExpr("1"),
       m_isValid(true),
       m_xParsed(nullptr),
       m_yParsed(nullptr) {
@@ -49,6 +50,7 @@ OscMusicEditor::~OscMusicEditor() {
 void OscMusicEditor::cleanupExpressions() {
     if (m_xParsed) { te_free((te_expr*)m_xParsed); m_xParsed = nullptr; }
     if (m_yParsed) { te_free((te_expr*)m_yParsed); m_yParsed = nullptr; }
+    if (m_zParsed) { te_free((te_expr*)m_zParsed); m_zParsed = nullptr; }
 }
 
 void OscMusicEditor::initializePresets() {
@@ -67,8 +69,13 @@ void OscMusicEditor::initializePresets() {
 }
 
 bool OscMusicEditor::setExpressions(const std::string& xExpr, const std::string& yExpr) {
+    return setExpressions(xExpr, yExpr, "1");
+}
+
+bool OscMusicEditor::setExpressions(const std::string& xExpr, const std::string& yExpr, const std::string& zExpr) {
     m_xExpr = xExpr;
     m_yExpr = yExpr;
+    m_zExpr = zExpr;
     return validateExpressions(m_lastError);
 }
 
@@ -93,14 +100,22 @@ bool OscMusicEditor::validateExpressions(std::string& errorMsg) {
         {"saw_hz", (const void*)te_saw_hz, TE_FUNCTION2}
     };
     
-    int xErr = 0, yErr = 0;
+    int xErr = 0, yErr = 0, zErr = 0;
     m_xParsed = (void*)te_compile(m_xExpr.c_str(), vars, 13, &xErr);
     m_yParsed = (void*)te_compile(m_yExpr.c_str(), vars, 13, &yErr);
+    m_zParsed = (void*)te_compile(m_zExpr.c_str(), vars, 13, &zErr);
     
     if (!m_xParsed) {
         errorMsg = "X expression error at position " + std::to_string(xErr);
         m_isValid = false;
         if (m_yParsed) { te_free((te_expr*)m_yParsed); m_yParsed = nullptr; }
+        if (m_zParsed) { te_free((te_expr*)m_zParsed); m_zParsed = nullptr; }
+        return false;
+    }
+    if (!m_zParsed) {
+        errorMsg = "Z expression error at position " + std::to_string(zErr);
+        m_isValid = false;
+        cleanupExpressions();
         return false;
     }
     
@@ -114,6 +129,7 @@ bool OscMusicEditor::validateExpressions(std::string& errorMsg) {
     // Test evaluation
     double xVal = te_eval((te_expr*)m_xParsed);
     double yVal = te_eval((te_expr*)m_yParsed);
+    double zVal = te_eval((te_expr*)m_zParsed);
     
     if (std::isnan(xVal) || std::isinf(xVal)) {
         errorMsg = "X expression produces invalid values (NaN/Inf)";
@@ -128,6 +144,12 @@ bool OscMusicEditor::validateExpressions(std::string& errorMsg) {
         cleanupExpressions();
         return false;
     }
+    if (std::isnan(zVal) || std::isinf(zVal)) {
+        errorMsg = "Z expression produces invalid values (NaN/Inf)";
+        m_isValid = false;
+        cleanupExpressions();
+        return false;
+    }
     
     m_isValid = true;
     errorMsg = "";
@@ -137,11 +159,16 @@ bool OscMusicEditor::validateExpressions(std::string& errorMsg) {
 
 
 std::vector<float> OscMusicEditor::generateStereoBuffer(float duration, int sampleRate) {
-    std::vector<float> stereoBuffer;
-    if (!m_isValid || !m_xParsed || !m_yParsed) return stereoBuffer;
+    return generateXYBuffer(duration, sampleRate).stereo;
+}
+
+OscMusicBuffer OscMusicEditor::generateXYBuffer(float duration, int sampleRate) {
+    OscMusicBuffer output;
+    if (!m_isValid || !m_xParsed || !m_yParsed || !m_zParsed) return output;
     
     int totalSamples = (int)(duration * sampleRate);
-    stereoBuffer.reserve(totalSamples * 2);
+    output.stereo.reserve(totalSamples * 2);
+    output.z.reserve(totalSamples);
     
     m_evalF = (double)m_baseFreq;
     
@@ -150,15 +177,17 @@ std::vector<float> OscMusicEditor::generateStereoBuffer(float duration, int samp
         
         float x = (float)te_eval((te_expr*)m_xParsed);
         float y = (float)te_eval((te_expr*)m_yParsed);
+        float z = (float)te_eval((te_expr*)m_zParsed);
         
         x = std::clamp(x, -1.0f, 1.0f);
         y = std::clamp(y, -1.0f, 1.0f);
         
-        stereoBuffer.push_back(x);
-        stereoBuffer.push_back(y);
+        output.stereo.push_back(x);
+        output.stereo.push_back(y);
+        output.z.push_back(std::clamp(z, 0.0f, 1.0f));
     }
     
-    return stereoBuffer;
+    return output;
 }
 
 std::vector<float> OscMusicEditor::getPreviewPoints(int count, float timeRange) {
@@ -184,5 +213,5 @@ void OscMusicEditor::loadPreset(int index) {
     }
     
     const OscMusicPreset& preset = m_presets[index];
-    setExpressions(preset.xExpr, preset.yExpr);
+    setExpressions(preset.xExpr, preset.yExpr, preset.zExpr);
 }

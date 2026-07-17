@@ -5,6 +5,7 @@
 #include <string>
 #include "AnalysisEngine.hpp"
 #include "VisualizerTypes.hpp"
+#include "XYOscilloscopeTypes.hpp"
 #include "imgui.h"
 
 enum class AudioMode {
@@ -15,6 +16,7 @@ enum class AudioMode {
 };
 
 struct VisualizerLayer {
+    LayerId id = 0;
     std::string name;
     LayerConfig config;
     float color[4] = { 0.0f, 0.8f, 1.0f, 1.0f };
@@ -42,6 +44,8 @@ struct VisualizerLayer {
     bool useLayerPersistence = true;
     AudioChannel channel = AudioChannel::Mixed;
     BarAnchor barAnchor = BarAnchor::Bottom;
+    XYLayerSettings xy;
+    XYMeasurements xyMeasurements;
 };
 
 struct VideoRenderSettings {
@@ -62,6 +66,7 @@ struct VideoRenderStatus {
 };
 
 struct AppState {
+    LayerId nextLayerId = 1;
     // Visualizer layers
     std::vector<VisualizerLayer> layers;
     
@@ -80,6 +85,7 @@ struct AppState {
     
     // Persistence settings
     float phosphorDecay = 0.1f;
+    OscilloscopeDisplaySettings oscilloscopeDisplay;
     
     // Audio Processing
     float globalGain = 1.0f;
@@ -145,6 +151,8 @@ struct AppState {
         if (selectedLayerIdx >= 0 && selectedLayerIdx < (int)layers.size()) return &layers[selectedLayerIdx];
         return nullptr;
     }
+
+    LayerId allocateLayerId() { return nextLayerId++; }
 };
 
 #endif // APP_STATE_HPP

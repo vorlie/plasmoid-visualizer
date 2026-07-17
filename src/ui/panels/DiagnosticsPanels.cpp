@@ -97,6 +97,19 @@ void UIManager::renderGlobalSettings(AppState& state) {
         ImGui::SliderFloat("Phosphor Decay", &state.phosphorDecay, 0.0f, 1.0f);
         ImGui::SameLine(); HelpMarker("1.0 = Instant clear (No trails). 0.01 = Long trails.");
         if (ImGui::Button("Reset Decay")) state.phosphorDecay = 0.1f;
+        if (ImGui::CollapsingHeader("Oscilloscope Display")) {
+            auto& scope = state.oscilloscopeDisplay;
+            ImGui::Checkbox("Graticule", &scope.graticuleEnabled);
+            ImGui::SliderFloat("Graticule Opacity", &scope.graticuleOpacity, 0.0f, 1.0f);
+            ImGui::SliderInt("Grid Columns", &scope.graticuleColumns, 1, 20);
+            ImGui::SliderInt("Grid Rows", &scope.graticuleRows, 1, 20);
+            ImGui::SliderFloat("Fast Decay (ms)", &scope.phosphorFastDecayMs, 5.0f, 500.0f);
+            ImGui::SliderFloat("Slow Decay (ms)", &scope.phosphorSlowDecayMs, 20.0f, 5000.0f);
+            ImGui::SliderFloat("Slow Phosphor Weight", &scope.phosphorSlowWeight, 0.0f, 1.0f);
+            ImGui::SliderFloat("Phosphor Saturation", &scope.phosphorSaturation, 0.0f, 3.0f);
+            ImGui::Checkbox("Measurement Overlay", &scope.measurementOverlay);
+            ImGui::Checkbox("Include Overlay in Video", &scope.overlayInVideo);
+        }
         
         ImGui::Text("Audio Input");
         ImGui::SliderFloat("Global Gain (Pre-Amp)", &state.globalGain, 0.1f, 100.0f);

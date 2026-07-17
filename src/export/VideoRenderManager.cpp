@@ -140,7 +140,9 @@ void VideoRenderManager::update(
         particleSystem,
         state.videoSettings.width,
         state.videoSettings.height,
-        (float)m_dt
+        (float)m_dt,
+        static_cast<std::uint64_t>(offset),
+        static_cast<std::uint32_t>(m_sampleRate)
     );
 
     glReadPixels(0, 0, state.videoSettings.width, state.videoSettings.height, GL_RGB, GL_UNSIGNED_BYTE, m_pixelBuffer.data());

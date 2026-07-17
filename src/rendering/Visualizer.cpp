@@ -100,12 +100,12 @@ void Visualizer::drawPersistenceBuffer() {
     drawTexture(m_persistenceBuffer.texture());
 }
 
-void Visualizer::drawTexture(GLuint texture) {
+void Visualizer::drawTexture(GLuint texture, float opacity) {
     if (texture == 0) return;
     glUseProgram(m_quadShaderProgram);
     glUniform1i(glGetUniformLocation(m_quadShaderProgram, "uUseTexture"), 1);
     glUniform1i(glGetUniformLocation(m_quadShaderProgram, "uIsFont"), 0);
-    glUniform4f(glGetUniformLocation(m_quadShaderProgram, "uColor"), 1.0f, 1.0f, 1.0f, 1.0f);
+    glUniform4f(glGetUniformLocation(m_quadShaderProgram, "uColor"), 1.0f, 1.0f, 1.0f, opacity);
     
     // Ensure scale/offset are reset for persistence buffer
     GLint sizeLoc = glGetUniformLocation(m_quadShaderProgram, "uSize");
@@ -292,12 +292,15 @@ void Visualizer::renderGrid() {
     // Very subtle dark version of the color
     glColor4f(m_r * 0.15f, m_g * 0.15f, m_b * 0.15f, m_a * 0.4f);
     glBegin(GL_LINES);
-    for (int i = -5; i <= 5; ++i) {
-        float p = i * 0.2f;
-        // Vertical
+    const int columns = std::max(m_gridColumns, 1);
+    const int rows = std::max(m_gridRows, 1);
+    for (int i = 0; i <= columns; ++i) {
+        const float p = -1.0f + 2.0f * static_cast<float>(i) / columns;
         glVertex2f(p * xScale, -1.0f * yScale);
         glVertex2f(p * xScale, 1.0f * yScale);
-        // Horizontal
+    }
+    for (int i = 0; i <= rows; ++i) {
+        const float p = -1.0f + 2.0f * static_cast<float>(i) / rows;
         glVertex2f(-1.0f * xScale, p * yScale);
         glVertex2f(1.0f * xScale, p * yScale);
     }
@@ -670,4 +673,57 @@ void Visualizer::render(const std::vector<float>& magnitudes) {
     } else {
         glDrawArrays(GL_TRIANGLES, 0, (GLsizei)(vertices.size() / 5));
     }
+}
+
+void Visualizer::renderXY(const XYTraceBatch& trace) {
+    if (trace.points.empty()) return;
+
+    glBindVertexArray(m_vao);
+    glBindBuffer(GL_ARRAY_BUFFER, m_vbo);
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(float), nullptr);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(float), reinterpret_cast<void*>(2 * sizeof(float)));
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(2, 1, GL_FLOAT, GL_FALSE, 5 * sizeof(float), reinterpret_cast<void*>(4 * sizeof(float)));
+    glEnableVertexAttribArray(2);
+    glUseProgram(m_shaderProgram);
+    glUniform1i(glGetUniformLocation(m_shaderProgram, "uShape"), static_cast<int>(VisualizerShape::OscilloscopeXY));
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE);
+    const GLint colorLocation = glGetUniformLocation(m_shaderProgram, "uColor");
+    const float bloom = std::clamp(m_bloomIntensity, 0.0f, 5.0f);
+
+    auto drawSegment = [&](const std::vector<float>& centerline) {
+        if (centerline.size() < 10) return;
+        auto drawPass = [&](float width, float alpha, float whiteMix, float emission) {
+            auto ribbon = VisualizerGeometry::buildTraceRibbon(
+                centerline, width, m_viewportWidth, m_viewportHeight);
+            if (ribbon.empty()) return;
+            glBufferData(GL_ARRAY_BUFFER, ribbon.size() * sizeof(float), ribbon.data(), GL_STREAM_DRAW);
+            glUniform4f(
+                colorLocation,
+                (m_r + (1.0f - m_r) * whiteMix) * emission,
+                (m_g + (1.0f - m_g) * whiteMix) * emission,
+                (m_b + (1.0f - m_b) * whiteMix) * emission,
+                m_a * alpha);
+            glDrawArrays(GL_TRIANGLE_STRIP, 0, static_cast<GLsizei>(ribbon.size() / 5));
+        };
+        drawPass(m_traceWidth + 1.5f, 0.35f, 0.0f, 0.55f + bloom * 0.2f);
+        drawPass(m_traceWidth, 0.95f, 0.25f, 0.8f + bloom * 0.65f);
+    };
+
+    // XY coordinates are expressed in scope units, not stretched NDC units.
+    // Compensate X for the framebuffer aspect so circles remain circles.
+    const float xAspectCompensation = m_viewportWidth > 0
+        ? static_cast<float>(m_viewportHeight) / static_cast<float>(m_viewportWidth)
+        : 1.0f;
+    std::vector<float> centerline;
+    for (const auto& point : trace.points) {
+        if (point.breakBefore) {
+            drawSegment(centerline);
+            centerline.clear();
+        }
+        centerline.insert(centerline.end(), {point.x * xAspectCompensation, point.y, 0.0f, 0.0f, point.intensity});
+    }
+    drawSegment(centerline);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 }

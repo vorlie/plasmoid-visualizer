@@ -17,7 +17,10 @@ void UIManager::renderLayerManager(AppState& state) {
     if (state.showLayerManager) {
         ImGui::Begin("Layer Manager", &state.showLayerManager);
         if (ImGui::Button("Add Layer")) {
-            state.layers.push_back({"New Layer", LayerConfig(), {1.0f, 1.0f, 1.0f, 1.0f}, 0.2f, false, VisualizerShape::Bars, 0.0f, {}, true});
+            VisualizerLayer layer;
+            layer.id = state.allocateLayerId();
+            layer.name = "New Layer";
+            state.layers.push_back(layer);
             state.selectedLayerIdx = (int)state.layers.size() - 1;
         }
         ImGui::Separator();
@@ -102,6 +105,79 @@ void UIManager::renderLayerEditor(AppState& state) {
             ImGui::SliderFloat("Time Scale", &layer.timeScale, 0.2f, 2.0f);
         
         if (layer.shape == VisualizerShape::OscilloscopeXY || layer.shape == VisualizerShape::OscilloscopeXY_Clean) {
+            auto& xy = layer.xy;
+            if (ImGui::CollapsingHeader("Profile", ImGuiTreeNodeFlags_DefaultOpen)) {
+                const char* profiles[] = {"Custom", "Analog Scope", "Stylized CRT"};
+                int profile = static_cast<int>(xy.profile);
+                if (ImGui::Combo("Profile##scope_preset", &profile, profiles, IM_ARRAYSIZE(profiles))) {
+                    xy.profile = static_cast<ScopeProfile>(profile);
+                    if (xy.profile == ScopeProfile::Analog) {
+                        xy.traceWidth = 1.35f; xy.bloom = 0.45f; xy.beamIntensity = 0.85f;
+                        xy.dwellEffect = 0.35f; xy.autoGain = false;
+                        state.oscilloscopeDisplay.profile = ScopeProfile::Analog;
+                        state.oscilloscopeDisplay.graticuleEnabled = true;
+                    } else if (xy.profile == ScopeProfile::Stylized) {
+                        xy.traceWidth = 2.5f; xy.bloom = 1.8f; xy.beamIntensity = 1.5f;
+                        xy.dwellEffect = 0.15f; xy.autoGain = true;
+                        state.oscilloscopeDisplay.profile = ScopeProfile::Stylized;
+                    }
+                }
+                ImGui::SliderFloat("Acquisition Window", &xy.windowScale, 0.2f, 4.0f);
+                layer.timeScale = xy.windowScale;
+            }
+            if (ImGui::CollapsingHeader("Acquisition")) {
+                ImGui::Checkbox("Persistence", &layer.useLayerPersistence);
+                xy.persistence = layer.useLayerPersistence;
+                ImGui::Checkbox("Automatic Gain", &xy.autoGain);
+            }
+            if (ImGui::CollapsingHeader("Trigger")) {
+                const char* modes[] = {"Auto", "Normal"}; const char* sources[] = {"X", "Y"}; const char* edges[] = {"Rising", "Falling"};
+                int mode = static_cast<int>(xy.triggerMode), source = static_cast<int>(xy.triggerSource), edge = static_cast<int>(xy.triggerEdge);
+                if (ImGui::Combo("Mode", &mode, modes, 2)) xy.triggerMode = static_cast<TriggerMode>(mode);
+                if (ImGui::Combo("Source", &source, sources, 2)) xy.triggerSource = static_cast<TriggerSource>(source);
+                if (ImGui::Combo("Edge", &edge, edges, 2)) xy.triggerEdge = static_cast<TriggerEdge>(edge);
+                ImGui::SliderFloat("Level", &xy.triggerLevel, -1.0f, 1.0f);
+                ImGui::SliderFloat("Hysteresis", &xy.triggerHysteresis, 0.0f, 0.25f);
+                ImGui::SliderFloat("Holdoff (ms)", &xy.triggerHoldoffMs, 0.0f, 100.0f);
+            }
+            if (ImGui::CollapsingHeader("Input Conditioning")) {
+                const char* coupling[] = {"DC", "AC"}; int cx = static_cast<int>(xy.couplingX), cy = static_cast<int>(xy.couplingY);
+                if (ImGui::Combo("X Coupling", &cx, coupling, 2)) xy.couplingX = static_cast<CouplingMode>(cx);
+                if (ImGui::Combo("Y Coupling", &cy, coupling, 2)) xy.couplingY = static_cast<CouplingMode>(cy);
+                ImGui::SliderFloat("AC Cutoff (Hz)", &xy.acCutoffHz, 0.1f, 100.0f, "%.1f");
+                ImGui::SliderFloat("Bandwidth (Hz)", &xy.bandwidthHz, 100.0f, 24000.0f, "%.0f");
+            }
+            if (ImGui::CollapsingHeader("Beam / Z")) {
+                const char* zModes[] = {"Derived", "Explicit", "Derived x Explicit"}; int zMode = static_cast<int>(xy.zMode);
+                ImGui::SliderFloat("Beam Intensity", &xy.beamIntensity, 0.0f, 4.0f);
+                ImGui::SliderFloat("Trace Thickness", &xy.traceWidth, 0.5f, 10.0f);
+                ImGui::SliderFloat("Bloom", &xy.bloom, 0.0f, 5.0f);
+                ImGui::SliderFloat("Dwell Effect", &xy.dwellEffect, 0.0f, 1.0f);
+                ImGui::SliderFloat("Max Connected Jump", &xy.jumpBlanking, 0.02f, 1.0f);
+                ImGui::SameLine(); HelpMarker("Lower values blank more long beam jumps. Start around 0.08 to remove retrace-like connectors.");
+                if (ImGui::Combo("Z Mode", &zMode, zModes, 3)) xy.zMode = static_cast<ZIntensityMode>(zMode);
+                ImGui::SliderFloat("Z Gain", &xy.zGain, 0.0f, 2.0f);
+                layer.traceWidth = xy.traceWidth; layer.bloom = xy.bloom; layer.velocityModulation = xy.dwellEffect; layer.xyAutoGain = xy.autoGain;
+            }
+            if (ImGui::CollapsingHeader("Transform")) {
+                ImGui::SliderFloat("Rotation", &xy.rotationDegrees, -180.0f, 180.0f);
+                ImGui::SliderFloat("X Scale", &xy.gainX, 0.1f, 5.0f);
+                ImGui::SliderFloat("Y Scale", &xy.gainY, 0.1f, 5.0f);
+                ImGui::SliderFloat("X Position", &xy.positionX, -1.0f, 1.0f);
+                ImGui::SliderFloat("Y Position", &xy.positionY, -1.0f, 1.0f);
+                ImGui::Checkbox("Invert X", &xy.invertX); ImGui::Checkbox("Invert Y", &xy.invertY);
+                layer.rotation = xy.rotationDegrees; layer.xScale = xy.gainX; layer.yScale = xy.gainY; layer.xOffset = xy.positionX; layer.yOffset = xy.positionY; layer.flipX = xy.invertX; layer.flipY = xy.invertY;
+            }
+            if (ImGui::CollapsingHeader("Measurements")) {
+                const auto& m = layer.xyMeasurements;
+                ImGui::Text("X: %.2f Hz   Y: %.2f Hz   Ratio: %d:%d", m.frequencyX, m.frequencyY, m.ratioNumerator, m.ratioDenominator);
+                ImGui::Text("X peak/RMS/DC: %.3f / %.3f / %.3f", m.peakX, m.rmsX, m.dcX);
+                ImGui::Text("Y peak/RMS/DC: %.3f / %.3f / %.3f", m.peakY, m.rmsY, m.dcY);
+                ImGui::Text("Phase: %s  %.1f deg   Confidence: %.0f%%", m.phaseValid ? "valid" : "--", m.phaseDegrees, m.confidence * 100.0f);
+            }
+        }
+
+        if (false && (layer.shape == VisualizerShape::OscilloscopeXY || layer.shape == VisualizerShape::OscilloscopeXY_Clean)) {
             ImGui::SliderFloat("Bloom Intensity", &layer.bloom, 0.0f, 5.0f);
             
             if (ImGui::TreeNode("Transform")) {

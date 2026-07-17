@@ -7,6 +7,44 @@
 
 namespace fs = std::filesystem;
 
+namespace {
+toml::table writeXYSettings(const XYLayerSettings& xy) {
+    return toml::table{
+        {"profile", static_cast<int>(xy.profile)}, {"persistence", xy.persistence},
+        {"window_scale", xy.windowScale}, {"coupling_x", static_cast<int>(xy.couplingX)},
+        {"coupling_y", static_cast<int>(xy.couplingY)}, {"ac_cutoff_hz", xy.acCutoffHz},
+        {"bandwidth_hz", xy.bandwidthHz}, {"gain_x", xy.gainX}, {"gain_y", xy.gainY},
+        {"position_x", xy.positionX}, {"position_y", xy.positionY},
+        {"invert_x", xy.invertX}, {"invert_y", xy.invertY}, {"rotation", xy.rotationDegrees},
+        {"auto_gain", xy.autoGain}, {"trigger_mode", static_cast<int>(xy.triggerMode)},
+        {"trigger_source", static_cast<int>(xy.triggerSource)}, {"trigger_edge", static_cast<int>(xy.triggerEdge)},
+        {"trigger_level", xy.triggerLevel}, {"trigger_hysteresis", xy.triggerHysteresis},
+        {"trigger_holdoff_ms", xy.triggerHoldoffMs}, {"jump_blanking", xy.jumpBlanking},
+        {"trace_width", xy.traceWidth}, {"bloom", xy.bloom}, {"beam_head_size", xy.beamHeadSize},
+        {"beam_intensity", xy.beamIntensity}, {"dwell_effect", xy.dwellEffect},
+        {"density_effect", xy.densityEffect}, {"z_mode", static_cast<int>(xy.zMode)},
+        {"z_gain", xy.zGain}, {"z_offset", xy.zOffset}
+    };
+}
+
+void readXYSettings(const toml::table& table, XYLayerSettings& xy) {
+    xy.profile = static_cast<ScopeProfile>(table["profile"].value_or(0));
+    xy.persistence = table["persistence"].value_or(true); xy.windowScale = table["window_scale"].value_or(1.0f);
+    xy.couplingX = static_cast<CouplingMode>(table["coupling_x"].value_or(0)); xy.couplingY = static_cast<CouplingMode>(table["coupling_y"].value_or(0));
+    xy.acCutoffHz = table["ac_cutoff_hz"].value_or(5.0f); xy.bandwidthHz = table["bandwidth_hz"].value_or(20000.0f);
+    xy.gainX = table["gain_x"].value_or(1.0f); xy.gainY = table["gain_y"].value_or(1.0f);
+    xy.positionX = table["position_x"].value_or(0.0f); xy.positionY = table["position_y"].value_or(0.0f);
+    xy.invertX = table["invert_x"].value_or(false); xy.invertY = table["invert_y"].value_or(false); xy.rotationDegrees = table["rotation"].value_or(0.0f);
+    xy.autoGain = table["auto_gain"].value_or(false); xy.triggerMode = static_cast<TriggerMode>(table["trigger_mode"].value_or(0));
+    xy.triggerSource = static_cast<TriggerSource>(table["trigger_source"].value_or(0)); xy.triggerEdge = static_cast<TriggerEdge>(table["trigger_edge"].value_or(0));
+    xy.triggerLevel = table["trigger_level"].value_or(0.0f); xy.triggerHysteresis = table["trigger_hysteresis"].value_or(0.02f);
+    xy.triggerHoldoffMs = table["trigger_holdoff_ms"].value_or(0.0f); xy.jumpBlanking = table["jump_blanking"].value_or(0.35f);
+    xy.traceWidth = table["trace_width"].value_or(2.0f); xy.bloom = table["bloom"].value_or(1.0f); xy.beamHeadSize = table["beam_head_size"].value_or(0.0f);
+    xy.beamIntensity = table["beam_intensity"].value_or(1.0f); xy.dwellEffect = table["dwell_effect"].value_or(0.0f); xy.densityEffect = table["density_effect"].value_or(0.0f);
+    xy.zMode = static_cast<ZIntensityMode>(table["z_mode"].value_or(0)); xy.zGain = table["z_gain"].value_or(1.0f); xy.zOffset = table["z_offset"].value_or(0.0f);
+}
+}
+
 bool ConfigManager::save(const std::string& filename, const AppConfig& config) {
     std::string fullPath = filename.empty() ? getConfigPath() : filename;
     
@@ -49,9 +87,19 @@ bool ConfigManager::save(const std::string& filename, const AppConfig& config) {
         {"show_song_info", config.showSongInfo}
     });
 
+    tbl.insert_or_assign("oscilloscope", toml::table{
+        {"profile", static_cast<int>(config.oscilloscopeDisplay.profile)}, {"graticule_enabled", config.oscilloscopeDisplay.graticuleEnabled},
+        {"graticule_opacity", config.oscilloscopeDisplay.graticuleOpacity}, {"graticule_columns", config.oscilloscopeDisplay.graticuleColumns},
+        {"graticule_rows", config.oscilloscopeDisplay.graticuleRows}, {"fast_decay_ms", config.oscilloscopeDisplay.phosphorFastDecayMs},
+        {"slow_decay_ms", config.oscilloscopeDisplay.phosphorSlowDecayMs}, {"slow_weight", config.oscilloscopeDisplay.phosphorSlowWeight},
+        {"saturation", config.oscilloscopeDisplay.phosphorSaturation}, {"decay_color_shift", config.oscilloscopeDisplay.decayColorShift},
+        {"measurement_overlay", config.oscilloscopeDisplay.measurementOverlay}, {"overlay_in_video", config.oscilloscopeDisplay.overlayInVideo}
+    });
+
     toml::array layersArray;
     for (const auto& layer : config.layers) {
-        layersArray.push_back(toml::table{
+        toml::table layerTable{
+            {"layer_id", static_cast<int64_t>(layer.layerId)},
             {"name", layer.name},
             {"gain", layer.gain},
             {"falloff", layer.falloff},
@@ -78,9 +126,14 @@ bool ConfigManager::save(const std::string& filename, const AppConfig& config) {
             {"beam_head_size", layer.beamHeadSize},
             {"velocity_modulation", layer.velocityModulation},
             {"xy_auto_gain", layer.xyAutoGain},
+            {"x_offset", layer.xOffset}, {"y_offset", layer.yOffset},
+            {"x_scale", layer.xScale}, {"y_scale", layer.yScale},
+            {"use_layer_persistence", layer.useLayerPersistence},
             {"audio_channel", layer.audioChannel},
             {"bar_anchor", layer.barAnchor}
-        });
+        };
+        layerTable.insert_or_assign("xy", writeXYSettings(layer.xy));
+        layersArray.push_back(std::move(layerTable));
     }
     tbl.insert_or_assign("layers", layersArray);
 
@@ -134,11 +187,28 @@ bool ConfigManager::load(const std::string& filename, AppConfig& config) {
             config.showSongInfo = (*app)["show_song_info"].value_or(true);
         }
 
+        if (auto scope = tbl["oscilloscope"].as_table()) {
+            config.hasOscilloscopeDisplay = true;
+            config.oscilloscopeDisplay.profile = static_cast<ScopeProfile>((*scope)["profile"].value_or(0));
+            config.oscilloscopeDisplay.graticuleEnabled = (*scope)["graticule_enabled"].value_or(true);
+            config.oscilloscopeDisplay.graticuleOpacity = (*scope)["graticule_opacity"].value_or(0.18f);
+            config.oscilloscopeDisplay.graticuleColumns = (*scope)["graticule_columns"].value_or(10);
+            config.oscilloscopeDisplay.graticuleRows = (*scope)["graticule_rows"].value_or(8);
+            config.oscilloscopeDisplay.phosphorFastDecayMs = (*scope)["fast_decay_ms"].value_or(65.0f);
+            config.oscilloscopeDisplay.phosphorSlowDecayMs = (*scope)["slow_decay_ms"].value_or(500.0f);
+            config.oscilloscopeDisplay.phosphorSlowWeight = (*scope)["slow_weight"].value_or(0.25f);
+            config.oscilloscopeDisplay.phosphorSaturation = (*scope)["saturation"].value_or(1.0f);
+            config.oscilloscopeDisplay.decayColorShift = (*scope)["decay_color_shift"].value_or(0.08f);
+            config.oscilloscopeDisplay.measurementOverlay = (*scope)["measurement_overlay"].value_or(false);
+            config.oscilloscopeDisplay.overlayInVideo = (*scope)["overlay_in_video"].value_or(false);
+        }
+
         if (auto layers = tbl["layers"].as_array()) {
             config.layers.clear();
             for (auto& item : *layers) {
                 if (auto layerTbl = item.as_table()) {
                     ConfigLayer l;
+                    l.layerId = static_cast<LayerId>((*layerTbl)["layer_id"].value_or(int64_t{0}));
                     l.name = (*layerTbl)["name"].value_or("Unnamed Layer");
                     l.gain = (*layerTbl)["gain"].value_or(1.0f);
                     l.falloff = (*layerTbl)["falloff"].value_or(0.9f);
@@ -171,8 +241,17 @@ bool ConfigManager::load(const std::string& filename, AppConfig& config) {
                     l.beamHeadSize = (*layerTbl)["beam_head_size"].value_or(0.0f);
                     l.velocityModulation = (*layerTbl)["velocity_modulation"].value_or(0.0f);
                     l.xyAutoGain = (*layerTbl)["xy_auto_gain"].value_or(false);
+                    l.xOffset = (*layerTbl)["x_offset"].value_or(0.0f);
+                    l.yOffset = (*layerTbl)["y_offset"].value_or(0.0f);
+                    l.xScale = (*layerTbl)["x_scale"].value_or(1.0f);
+                    l.yScale = (*layerTbl)["y_scale"].value_or(1.0f);
+                    l.useLayerPersistence = (*layerTbl)["use_layer_persistence"].value_or(true);
                     l.audioChannel = (*layerTbl)["audio_channel"].value_or(0);
                     l.barAnchor = (*layerTbl)["bar_anchor"].value_or(0);
+                    if (auto xy = (*layerTbl)["xy"].as_table()) {
+                        readXYSettings(*xy, l.xy);
+                        l.hasXYSettings = true;
+                    }
                     
                     config.layers.push_back(l);
                 }

@@ -9,7 +9,9 @@
 #include "Visualizer.hpp"
 #include "ParticleSystem.hpp"
 #include "BloomRenderer.hpp"
+#include "XYOscilloscopeEngine.hpp"
 #include <vector>
+#include <unordered_map>
 
 class RenderManager {
 public:
@@ -45,14 +47,16 @@ public:
         ParticleSystem& particleSystem,
         int width,
         int height,
-        float deltaTime
+        float deltaTime,
+        std::uint64_t audioStartFrame,
+        std::uint32_t sampleRate
     );
 
     void renderPersistentLayers(
         AppState& state,
         AudioEngine& audioEngine,
         Visualizer& visualizer,
-        const std::vector<float>* offlineStereo = nullptr
+        const XYInputChunk* offlineXY = nullptr
     );
 
     void renderDirectLayers(
@@ -60,13 +64,16 @@ public:
         AudioEngine& audioEngine,
         AnalysisEngine& analysisEngine,
         Visualizer& visualizer,
-        const std::vector<float>* offlineStereo = nullptr,
+        const XYInputChunk* offlineXY = nullptr,
         const std::vector<float>* offlineMono = nullptr
     );
 
 private:
     BloomRenderer m_bloomRenderer;
     Framebuffer m_sceneBuffer;
+    Framebuffer m_slowPhosphorBuffer;
+    XYOscilloscopeEngine m_xyEngine;
+    std::unordered_map<LayerId, std::uint64_t> m_xyCursors;
     GLuint m_captureFbo = 0;
     GLuint m_captureTex = 0;
     GLuint m_captureRbo = 0;

@@ -3,8 +3,10 @@
 
 #include <string>
 #include <vector>
+#include "XYOscilloscopeTypes.hpp"
 
 struct ConfigLayer {
+    LayerId layerId = 0;
     std::string name;
     // LayerConfig fields
     float gain;
@@ -33,8 +35,15 @@ struct ConfigLayer {
     float beamHeadSize = 0.0f;
     float velocityModulation = 0.0f;
     bool xyAutoGain = false;
+    float xOffset = 0.0f;
+    float yOffset = 0.0f;
+    float xScale = 1.0f;
+    float yScale = 1.0f;
+    bool useLayerPersistence = true;
     int audioChannel = 0; // 0=Mixed, 1=Left, 2=Right
     int barAnchor = 0; // 0=Bottom, 1=Top, 2=Left, 3=Right, 4=Center
+    bool hasXYSettings = false;
+    XYLayerSettings xy;
 };
 
 struct AppConfig {
@@ -49,6 +58,8 @@ struct AppConfig {
     float globalGain = 1.0f;
     bool enableVsync = true;
     int targetFps = 60;
+    bool hasOscilloscopeDisplay = false;
+    OscilloscopeDisplaySettings oscilloscopeDisplay;
 
     // Zen-Kun
     bool zenKunEnabled = false;

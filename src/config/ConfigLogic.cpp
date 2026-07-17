@@ -4,6 +4,7 @@
 #include <iostream>
 #include <cstring>
 #include <algorithm>
+#include <cmath>
 
 namespace fs = std::filesystem;
 
@@ -38,6 +39,7 @@ void ConfigLogic::saveSettings(const AppState& state) {
     config.particleSize = state.particleSize;
     memcpy(config.particleColor, state.particleColor, sizeof(float)*4);
     config.phosphorDecay = state.phosphorDecay;
+    config.oscilloscopeDisplay = state.oscilloscopeDisplay;
     config.audioMode = (int)state.currentAudioMode;
     config.captureDeviceName = state.selectedCaptureDeviceName;
     config.useSpecificCaptureDevice = state.useSpecificCaptureDevice;
@@ -88,8 +90,32 @@ void ConfigLogic::saveSettings(const AppState& state) {
         cl.beamHeadSize = l.beamHeadSize;
         cl.velocityModulation = l.velocityModulation;
         cl.xyAutoGain = l.xyAutoGain;
+        cl.xOffset = l.xOffset;
+        cl.yOffset = l.yOffset;
+        cl.xScale = l.xScale;
+        cl.yScale = l.yScale;
+        cl.useLayerPersistence = l.useLayerPersistence;
         cl.audioChannel = (int)l.channel;
         cl.barAnchor = (int)l.barAnchor;
+        cl.layerId = l.id;
+        cl.xy = l.xy;
+        // Legacy layer controls remain the active controls until their dedicated
+        // oscilloscope panel is displayed, so keep both representations aligned.
+        cl.xy.persistence = l.useLayerPersistence;
+        cl.xy.windowScale = l.timeScale;
+        cl.xy.gainX = l.xScale;
+        cl.xy.gainY = l.yScale;
+        cl.xy.positionX = l.xOffset;
+        cl.xy.positionY = l.yOffset;
+        cl.xy.invertX = l.flipX;
+        cl.xy.invertY = l.flipY;
+        cl.xy.rotationDegrees = l.rotation;
+        cl.xy.autoGain = l.xyAutoGain;
+        cl.xy.traceWidth = l.traceWidth;
+        cl.xy.bloom = l.bloom;
+        cl.xy.beamHeadSize = l.beamHeadSize;
+        cl.xy.dwellEffect = l.velocityModulation;
+        cl.hasXYSettings = true;
         config.layers.push_back(cl);
     }
 
@@ -109,6 +135,19 @@ void ConfigLogic::loadSettings(AppState& state) {
         state.particleSize = config.particleSize;
         memcpy(state.particleColor, config.particleColor, sizeof(float)*4);
         state.phosphorDecay = config.phosphorDecay;
+        if (config.hasOscilloscopeDisplay) {
+            state.oscilloscopeDisplay = config.oscilloscopeDisplay;
+        } else {
+            // Convert the former per-frame dimming amount (at 60 FPS) to a
+            // slow phosphor lifetime.  Old projects deliberately start Custom.
+            const float retained = std::clamp(1.0f - config.phosphorDecay, 0.001f, 0.9999f);
+            const float slowMs = -1000.0f / (60.0f * std::log(retained));
+            state.oscilloscopeDisplay.profile = ScopeProfile::Custom;
+            state.oscilloscopeDisplay.phosphorSlowDecayMs = std::clamp(slowMs, 10.0f, 30000.0f);
+            state.oscilloscopeDisplay.phosphorFastDecayMs = state.oscilloscopeDisplay.phosphorSlowDecayMs * 0.15f;
+            state.oscilloscopeDisplay.phosphorSlowWeight = 0.25f;
+            state.oscilloscopeDisplay.graticuleEnabled = std::any_of(config.layers.begin(), config.layers.end(), [](const ConfigLayer& layer) { return layer.showGrid; });
+        }
         state.currentAudioMode = (AudioMode)config.audioMode;
         strncpy(state.selectedCaptureDeviceName, config.captureDeviceName.c_str(), sizeof(state.selectedCaptureDeviceName));
         state.useSpecificCaptureDevice = config.useSpecificCaptureDevice;
@@ -135,6 +174,8 @@ void ConfigLogic::loadSettings(AppState& state) {
             state.layers.clear();
             for (auto& cl : config.layers) {
                 VisualizerLayer l;
+                l.id = cl.layerId != 0 ? cl.layerId : state.allocateLayerId();
+                state.nextLayerId = std::max(state.nextLayerId, l.id + 1);
                 l.name = cl.name;
                 l.config.gain = cl.gain;
                 l.config.falloff = cl.falloff;
@@ -162,8 +203,32 @@ void ConfigLogic::loadSettings(AppState& state) {
                 l.beamHeadSize = cl.beamHeadSize;
                 l.velocityModulation = cl.velocityModulation;
                 l.xyAutoGain = cl.xyAutoGain;
+                l.xOffset = cl.xOffset;
+                l.yOffset = cl.yOffset;
+                l.xScale = cl.xScale;
+                l.yScale = cl.yScale;
+                l.useLayerPersistence = cl.useLayerPersistence;
                 l.channel = (AudioChannel)cl.audioChannel;
                 l.barAnchor = (BarAnchor)cl.barAnchor;
+                if (cl.hasXYSettings) {
+                    l.xy = cl.xy;
+                } else {
+                    l.xy.profile = ScopeProfile::Custom;
+                    l.xy.persistence = l.useLayerPersistence;
+                    l.xy.windowScale = l.timeScale;
+                    l.xy.gainX = l.xScale;
+                    l.xy.gainY = l.yScale;
+                    l.xy.positionX = l.xOffset;
+                    l.xy.positionY = l.yOffset;
+                    l.xy.invertX = l.flipX;
+                    l.xy.invertY = l.flipY;
+                    l.xy.rotationDegrees = l.rotation;
+                    l.xy.autoGain = l.xyAutoGain;
+                    l.xy.traceWidth = l.traceWidth;
+                    l.xy.bloom = l.bloom;
+                    l.xy.beamHeadSize = l.beamHeadSize;
+                    l.xy.dwellEffect = l.velocityModulation;
+                }
                 state.layers.push_back(l);
             }
         }

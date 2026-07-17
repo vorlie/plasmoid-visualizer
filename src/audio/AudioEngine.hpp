@@ -5,6 +5,8 @@
 #include <string>
 #include <vector>
 #include <mutex>
+#include <cstdint>
+#include "XYOscilloscopeTypes.hpp"
 
 class AudioEngine {
 public:
@@ -34,6 +36,9 @@ public:
     
     // Get current stereo buffer for Oscilloscope XY (Interleaved L/R)
     void getStereoBuffer(std::vector<float>& buffer, size_t frames);
+    XYInputChunk readXYSince(std::uint64_t cursor, size_t maxFrames) const;
+    XYInputChunk snapshotXY(size_t frames) const;
+    std::uint64_t latestXYFrame() const;
     
     // Offline rendering helper
     bool readAudioFrames(size_t offsetFrames, size_t count, std::vector<float>& outBuffer);
@@ -62,7 +67,14 @@ public:
     void setOscMusicMode(bool enabled) { m_oscMusicMode = enabled; }
     void setOscMusicBuffer(const std::vector<float>& buffer) { 
         std::lock_guard<std::mutex> lock(m_bufferMutex);
-        m_oscMusicBuffer = buffer; 
+        m_oscMusicBuffer = buffer;
+        m_oscMusicZBuffer.clear();
+        m_oscMusicReadPos = 0;
+    }
+    void setOscMusicBuffer(const std::vector<float>& buffer, const std::vector<float>& z) {
+        std::lock_guard<std::mutex> lock(m_bufferMutex);
+        m_oscMusicBuffer = buffer;
+        m_oscMusicZBuffer = z;
         m_oscMusicReadPos = 0;
     }
     bool isOscMusicMode() const { return m_oscMusicMode; }
@@ -70,6 +82,8 @@ public:
 
 private:
     void resetDevice();
+    void writeXYFrameUnlocked(float x, float y, float z = 1.0f, bool hasZ = false);
+    void markXYDiscontinuity();
     static void dataCallback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount);
 
     ma_decoder m_decoder;
@@ -81,8 +95,14 @@ private:
     mutable std::mutex m_bufferMutex;
     std::vector<float> m_circularBuffer; // Mono mix for FFT
     std::vector<float> m_stereoBuffer;   // Interleaved L/R for XY
+    std::vector<float> m_zBuffer;
+    std::vector<unsigned char> m_zValidBuffer;
     size_t m_writePos = 0;
     size_t m_stereoWritePos = 0;
+    std::uint64_t m_xyFrameCounter = 0;
+    std::uint64_t m_xyDiscontinuityGeneration = 1;
+    size_t m_xyValidFrames = 0;
+    ma_uint32 m_currentSampleRate = 48000;
 
     ma_device_id m_selectedDeviceID;
     bool m_useSpecificDevice = false;
@@ -102,6 +122,7 @@ private:
     // OscMusic playback state
     bool m_oscMusicMode = false;
     std::vector<float> m_oscMusicBuffer; // Stereo interleaved
+    std::vector<float> m_oscMusicZBuffer;
     size_t m_oscMusicReadPos = 0;
 };
 

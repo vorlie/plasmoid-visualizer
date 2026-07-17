@@ -22,6 +22,13 @@ if(BUILD_TESTING)
     )
     target_include_directories(VisualizerGeometryTests PRIVATE src/rendering)
     add_test(NAME VisualizerGeometryTests COMMAND VisualizerGeometryTests)
+
+    add_executable(XYOscilloscopeEngineTests
+        tests/XYOscilloscopeEngineTests.cpp
+        src/rendering/XYOscilloscopeEngine.cpp
+    )
+    target_include_directories(XYOscilloscopeEngineTests PRIVATE src/rendering)
+    add_test(NAME XYOscilloscopeEngineTests COMMAND XYOscilloscopeEngineTests)
 endif()
 
 # Source files
@@ -38,6 +45,7 @@ set(SOURCES
     src/platform/SystemStats.cpp
     src/rendering/Visualizer.cpp
     src/rendering/VisualizerGeometry.cpp
+    src/rendering/XYOscilloscopeEngine.cpp
     src/rendering/ShaderProgram.cpp
     src/rendering/Framebuffer.cpp
     src/rendering/Texture2D.cpp
