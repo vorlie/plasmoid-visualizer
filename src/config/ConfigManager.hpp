@@ -81,6 +81,8 @@ struct AppConfig {
     float mediaBackgroundScale = 1.0f;
     float mediaBackgroundOffsetX = 0.0f;
     float mediaBackgroundOffsetY = 0.0f;
+    int mediaVideoDecoder = 0;
+    int mediaVideoFps = 30;
     std::string mediaFontPath;
     std::string mediaLyricsFontPath;
     std::string mediaArtist = "Alan Walker ft. K-391, Tungevaag, Mangoo";

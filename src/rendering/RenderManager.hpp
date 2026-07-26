@@ -74,6 +74,7 @@ public:
     void renderMediaBackground(
         const AppState& state,
         Visualizer& visualizer,
+        const AnimatedBackground& background,
         GLuint texture,
         int width,
         int height);
@@ -83,12 +84,16 @@ private:
     Framebuffer m_sceneBuffer;
     Framebuffer m_slowPhosphorBuffer;
     XYOscilloscopeEngine m_xyEngine;
+    AnalysisEngine m_overlayAnalysis{8192};
     OverlayPresetRenderer m_overlayRenderer;
     GaussianBlurRenderer m_overlayBlurRenderer;
     AnimatedBackground m_overlayBackground;
+    AnimatedBackground m_offlineOverlayBackground;
     std::string m_loadedOverlayFont;
     std::string m_loadedLyricsFont;
     std::vector<float> m_overlayPrevMagnitudes;
+    std::vector<float> m_offlineOverlayPrevMagnitudes;
+    std::unordered_map<LayerId, std::vector<float>> m_offlineLayerPrevMagnitudes;
     std::unordered_map<LayerId, std::uint64_t> m_xyCursors;
     GLuint m_captureFbo = 0;
     GLuint m_captureTex = 0;

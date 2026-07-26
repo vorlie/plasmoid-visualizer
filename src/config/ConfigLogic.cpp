@@ -65,6 +65,8 @@ void ConfigLogic::saveSettings(const AppState& state) {
     config.mediaBackgroundScale = state.mediaOverlay.backgroundScale;
     config.mediaBackgroundOffsetX = state.mediaOverlay.backgroundOffsetX;
     config.mediaBackgroundOffsetY = state.mediaOverlay.backgroundOffsetY;
+    config.mediaVideoDecoder = static_cast<int>(state.mediaOverlay.videoDecoder);
+    config.mediaVideoFps = state.mediaOverlay.videoFps;
     config.mediaFontPath = state.mediaOverlay.fontPath;
     config.mediaLyricsFontPath = state.mediaOverlay.lyricsFontPath;
     config.mediaArtist = state.mediaOverlay.artist;
@@ -211,6 +213,9 @@ void ConfigLogic::loadSettings(AppState& state) {
         state.mediaOverlay.backgroundScale = config.mediaBackgroundScale;
         state.mediaOverlay.backgroundOffsetX = config.mediaBackgroundOffsetX;
         state.mediaOverlay.backgroundOffsetY = config.mediaBackgroundOffsetY;
+        state.mediaOverlay.videoDecoder =
+            static_cast<OverlayVideoDecoder>(std::clamp(config.mediaVideoDecoder, 0, 2));
+        state.mediaOverlay.videoFps = std::clamp(config.mediaVideoFps, 1, 60);
         strncpy(state.mediaOverlay.fontPath, config.mediaFontPath.c_str(), sizeof(state.mediaOverlay.fontPath) - 1);
         strncpy(state.mediaOverlay.lyricsFontPath, config.mediaLyricsFontPath.c_str(), sizeof(state.mediaOverlay.lyricsFontPath) - 1);
         strncpy(state.mediaOverlay.artist, config.mediaArtist.c_str(), sizeof(state.mediaOverlay.artist) - 1);

@@ -107,6 +107,8 @@ bool ConfigManager::save(const std::string& filename, const AppConfig& config) {
         {"background_scale", config.mediaBackgroundScale},
         {"background_offset_x", config.mediaBackgroundOffsetX},
         {"background_offset_y", config.mediaBackgroundOffsetY},
+        {"video_decoder", config.mediaVideoDecoder},
+        {"video_fps", config.mediaVideoFps},
         {"font_path", config.mediaFontPath},
         {"lyrics_font_path", config.mediaLyricsFontPath},
         {"artist", config.mediaArtist},
@@ -257,6 +259,8 @@ bool ConfigManager::load(const std::string& filename, AppConfig& config) {
             config.mediaBackgroundScale = (*overlay)["background_scale"].value_or(1.0f);
             config.mediaBackgroundOffsetX = (*overlay)["background_offset_x"].value_or(0.0f);
             config.mediaBackgroundOffsetY = (*overlay)["background_offset_y"].value_or(0.0f);
+            config.mediaVideoDecoder = (*overlay)["video_decoder"].value_or(0);
+            config.mediaVideoFps = (*overlay)["video_fps"].value_or(30);
             config.mediaFontPath = (*overlay)["font_path"].value_or("");
             config.mediaLyricsFontPath = (*overlay)["lyrics_font_path"].value_or("");
             config.mediaArtist = (*overlay)["artist"].value_or(config.mediaArtist);

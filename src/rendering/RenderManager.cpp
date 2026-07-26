@@ -70,6 +70,7 @@ void RenderManager::renderToTarget(
                 for (auto& s : audioBuffer) s *= state.globalGain;
             }
             analysisEngine.computeFFT(audioBuffer);
+            m_overlayAnalysis.computeFFT(audioBuffer);
         }
 
         const float overlayTime = audioEngine.getPosition();
@@ -79,7 +80,10 @@ void RenderManager::renderToTarget(
                 : OverlayBackgroundType::None,
             state.mediaOverlay.backgroundFit,
             state.mediaOverlay.backgroundPath,
-            overlayTime, width, height);
+            overlayTime, width, height,
+            !isOffline,
+            state.mediaOverlay.videoDecoder,
+            state.mediaOverlay.videoFps);
         const std::string overlayFont = state.mediaOverlay.fontPath[0] != '\0'
             ? state.mediaOverlay.fontPath
             : AssetPaths::defaultFont().string();
@@ -162,7 +166,9 @@ void RenderManager::renderToTarget(
         if (state.zenKunModeEnabled) {
             visualizer.drawBackground(state.currentBgScale + state.currentShakeZoom, state.currentShakeX, state.currentShakeY, state.currentShakeTilt);
         }
-        renderMediaBackground(state, visualizer, overlayBackgroundTexture, width, height);
+        renderMediaBackground(
+            state, visualizer, m_overlayBackground,
+            overlayBackgroundTexture, width, height);
 
         glEnable(GL_BLEND);
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
@@ -236,7 +242,7 @@ void RenderManager::renderToTarget(
             overlaySpectrum.attack = 0.82f;
             overlaySpectrum.falloff = 0.88f;
             overlaySpectrum.smoothing = 1;
-            const auto spectrum = analysisEngine.computeLayerMagnitudes(
+            const auto spectrum = m_overlayAnalysis.computeLayerMagnitudes(
                 overlaySpectrum, m_overlayPrevMagnitudes);
             OverlayFrameData frame;
             frame.fft = &spectrum;
@@ -277,16 +283,27 @@ void RenderManager::renderOfflineFrame(
     bool isBeat = false;
 
     try {
+        if (state.videoStatus.currentFrame == 0) {
+            m_offlineOverlayPrevMagnitudes.clear();
+            m_offlineLayerPrevMagnitudes.clear();
+            m_offlineOverlayBackground.reset();
+        }
+        analysisEngine.computeFFT(monoBuffer);
+        m_overlayAnalysis.computeFFT(monoBuffer);
+
         const float overlayTime =
             static_cast<float>(state.videoStatus.currentFrame) /
             static_cast<float>(std::max(state.videoSettings.fps, 1));
-        const GLuint overlayBackgroundTexture = m_overlayBackground.update(
+        const GLuint overlayBackgroundTexture = m_offlineOverlayBackground.update(
             state.mediaOverlay.enabled
                 ? state.mediaOverlay.backgroundType
                 : OverlayBackgroundType::None,
             state.mediaOverlay.backgroundFit,
             state.mediaOverlay.backgroundPath,
-            overlayTime, width, height);
+            overlayTime, width, height,
+            false,
+            state.mediaOverlay.videoDecoder,
+            state.mediaOverlay.videoFps);
         const std::string overlayFont = state.mediaOverlay.fontPath[0] != '\0'
             ? state.mediaOverlay.fontPath
             : AssetPaths::defaultFont().string();
@@ -385,7 +402,9 @@ void RenderManager::renderOfflineFrame(
         if (state.zenKunModeEnabled) {
             visualizer.drawBackground(state.currentBgScale + state.currentShakeZoom, state.currentShakeX, state.currentShakeY, state.currentShakeTilt);
         }
-        renderMediaBackground(state, visualizer, overlayBackgroundTexture, width, height);
+        renderMediaBackground(
+            state, visualizer, m_offlineOverlayBackground,
+            overlayBackgroundTexture, width, height);
 
         glEnable(GL_BLEND);
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
@@ -477,8 +496,8 @@ void RenderManager::renderOfflineFrame(
             overlaySpectrum.attack = 0.82f;
             overlaySpectrum.falloff = 0.88f;
             overlaySpectrum.smoothing = 1;
-            const auto spectrum = analysisEngine.computeLayerMagnitudes(
-                overlaySpectrum, m_overlayPrevMagnitudes);
+            const auto spectrum = m_overlayAnalysis.computeLayerMagnitudes(
+                overlaySpectrum, m_offlineOverlayPrevMagnitudes);
             OverlayFrameData frame;
             frame.fft = &spectrum;
             frame.lyrics = &state.mediaOverlay.lyrics;
@@ -496,6 +515,9 @@ void RenderManager::renderOfflineFrame(
             }
             m_overlayRenderer.render(visualizer, state.mediaOverlay.style, frame);
         }
+        if (state.videoStatus.currentFrame + 1 >= state.videoStatus.totalFrames) {
+            m_offlineOverlayBackground.reset();
+        }
 
     } catch (const std::exception& e) {
         std::cerr << "EXCEPTION in RenderManager (Offline): " << e.what() << std::endl;
@@ -505,6 +527,7 @@ void RenderManager::renderOfflineFrame(
 void RenderManager::renderMediaBackground(
     const AppState& state,
     Visualizer& visualizer,
+    const AnimatedBackground& background,
     GLuint texture,
     int width,
     int height
@@ -522,10 +545,10 @@ void RenderManager::renderMediaBackground(
     // their native dimensions, so fit/crop them here without distortion.
     if (layer.backgroundType != OverlayBackgroundType::LoopedVideo &&
         layer.backgroundFit != OverlayBackgroundFit::Stretch &&
-        m_overlayBackground.width() > 0 && m_overlayBackground.height() > 0) {
+        background.width() > 0 && background.height() > 0) {
         const float sourceAspect =
-            static_cast<float>(m_overlayBackground.width()) /
-            static_cast<float>(m_overlayBackground.height());
+            static_cast<float>(background.width()) /
+            static_cast<float>(background.height());
         const float targetAspect = static_cast<float>(width) / static_cast<float>(height);
         if (layer.backgroundFit == OverlayBackgroundFit::Contain) {
             if (sourceAspect > targetAspect) {
@@ -611,6 +634,7 @@ void RenderManager::renderDirectLayers(
 ) {
     for (auto& layer : state.layers) {
         if (!layer.visible) continue;
+        if (layer.id == 0) layer.id = state.allocateLayerId();
         // Skip persistent XY layers (they are handled in renderPersistentLayers)
         if ((layer.shape == VisualizerShape::OscilloscopeXY || layer.shape == VisualizerShape::OscilloscopeXY_Clean) && layer.useLayerPersistence) continue;
 
@@ -672,7 +696,10 @@ void RenderManager::renderDirectLayers(
                 }
             }
             analysisEngine.computeFFT(channelBuffer);
-            renderData = analysisEngine.computeLayerMagnitudes(layer.config, layer.prevMagnitudes);
+            auto& previous = offlineMono
+                ? m_offlineLayerPrevMagnitudes[layer.id]
+                : layer.prevMagnitudes;
+            renderData = analysisEngine.computeLayerMagnitudes(layer.config, previous);
         }
 
         visualizer.setColor(layer.color[0], layer.color[1], layer.color[2], layer.color[3]);

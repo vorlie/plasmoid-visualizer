@@ -3,7 +3,10 @@
 #include "OverlayPreset.hpp"
 #include <GL/glew.h>
 #include <cstdio>
+#include <atomic>
+#include <mutex>
 #include <string>
+#include <thread>
 #include <vector>
 
 class AnimatedBackground {
@@ -19,7 +22,10 @@ public:
         const std::string& path,
         float timestampSeconds,
         int outputWidth,
-        int outputHeight);
+        int outputHeight,
+        bool realtime,
+        OverlayVideoDecoder decoder,
+        int videoFps);
     void reset();
     const std::string& error() const noexcept { return m_error; }
     int width() const noexcept { return m_textureWidth; }
@@ -30,8 +36,10 @@ private:
     bool loadGif(const std::string& path);
     bool startVideo(
         const std::string& path, OverlayBackgroundFit fit,
-        float timestampSeconds, int width, int height);
+        float timestampSeconds, int width, int height,
+        bool realtime, OverlayVideoDecoder decoder, int videoFps);
     bool readVideoFrame();
+    void videoReaderLoop();
     void upload(const unsigned char* pixels, int width, int height);
     void stopVideo();
 
@@ -55,4 +63,12 @@ private:
     int m_videoFrameIndex = -1;
     float m_videoStartTimestamp = 0.0f;
     OverlayBackgroundFit m_videoFit = OverlayBackgroundFit::Cover;
+    OverlayVideoDecoder m_videoDecoder = OverlayVideoDecoder::Auto;
+    int m_videoFps = 30;
+    bool m_videoRealtime = false;
+    std::thread m_videoThread;
+    std::atomic<bool> m_stopVideoThread{false};
+    std::mutex m_videoFrameMutex;
+    std::vector<unsigned char> m_pendingVideoFrame;
+    bool m_pendingVideoFrameReady = false;
 };

@@ -118,12 +118,15 @@ bool AnimatedBackground::loadGif(const std::string& path) {
 
 void AnimatedBackground::stopVideo() {
     if (!m_videoPipe) return;
+    m_stopVideoThread = true;
+    if (m_videoThread.joinable()) m_videoThread.join();
 #ifdef _WIN32
     _pclose(m_videoPipe);
 #else
     pclose(m_videoPipe);
 #endif
     m_videoPipe = nullptr;
+    m_stopVideoThread = false;
 }
 
 bool AnimatedBackground::startVideo(
@@ -131,7 +134,10 @@ bool AnimatedBackground::startVideo(
     OverlayBackgroundFit fit,
     float timestampSeconds,
     int width,
-    int height
+    int height,
+    bool realtime,
+    OverlayVideoDecoder decoder,
+    int videoFps
 ) {
     stopVideo();
     m_videoWidth = std::max(width, 1);
@@ -140,6 +146,11 @@ bool AnimatedBackground::startVideo(
     m_videoFrameIndex = -1;
     m_videoStartTimestamp = std::max(timestampSeconds, 0.0f);
     m_videoFit = fit;
+    m_videoRealtime = realtime;
+    m_videoDecoder = decoder;
+    m_videoFps = std::clamp(videoFps, 1, 60);
+    m_pendingVideoFrame.clear();
+    m_pendingVideoFrameReady = false;
 
     const std::string nullDevice =
 #ifdef _WIN32
@@ -150,24 +161,36 @@ bool AnimatedBackground::startVideo(
     std::string videoFilter;
     if (fit == OverlayBackgroundFit::Contain) {
         videoFilter =
-            "fps=30,scale=" + std::to_string(m_videoWidth) + ":" +
+            "fps=" + std::to_string(m_videoFps) + ",scale=" + std::to_string(m_videoWidth) + ":" +
             std::to_string(m_videoHeight) +
             ":force_original_aspect_ratio=decrease,pad=" +
             std::to_string(m_videoWidth) + ":" + std::to_string(m_videoHeight) +
             ":(ow-iw)/2:(oh-ih)/2";
     } else if (fit == OverlayBackgroundFit::Stretch) {
         videoFilter =
-            "fps=30,scale=" + std::to_string(m_videoWidth) + ":" +
+            "fps=" + std::to_string(m_videoFps) + ",scale=" + std::to_string(m_videoWidth) + ":" +
             std::to_string(m_videoHeight);
     } else {
         videoFilter =
-            "fps=30,scale=" + std::to_string(m_videoWidth) + ":" +
+            "fps=" + std::to_string(m_videoFps) + ",scale=" + std::to_string(m_videoWidth) + ":" +
             std::to_string(m_videoHeight) +
             ":force_original_aspect_ratio=increase,crop=" +
             std::to_string(m_videoWidth) + ":" + std::to_string(m_videoHeight);
     }
+    std::string acceleration;
+#ifdef _WIN32
+    if (decoder == OverlayVideoDecoder::D3D11VA) {
+        acceleration = "-hwaccel d3d11va ";
+    } else if (decoder == OverlayVideoDecoder::Auto) {
+        acceleration = "-hwaccel auto ";
+    }
+#else
+    if (decoder == OverlayVideoDecoder::Auto) acceleration = "-hwaccel auto ";
+#endif
     const std::string command =
-        "ffmpeg -loglevel error -stream_loop -1 -ss " + std::to_string(m_videoStartTimestamp) +
+        "ffmpeg -loglevel error " + acceleration +
+        (realtime ? "-re " : "") +
+        "-stream_loop -1 -ss " + std::to_string(m_videoStartTimestamp) +
         " -i " + quoted(path) + " -an -vf \"" + videoFilter +
         "\" -f rawvideo -pix_fmt rgba - 2>" + nullDevice;
 #ifdef _WIN32
@@ -181,6 +204,10 @@ bool AnimatedBackground::startVideo(
     if (!m_videoPipe) {
         m_error = "Could not start FFmpeg video decoder.";
         return false;
+    }
+    if (realtime) {
+        m_stopVideoThread = false;
+        m_videoThread = std::thread(&AnimatedBackground::videoReaderLoop, this);
     }
     return true;
 }
@@ -198,13 +225,30 @@ bool AnimatedBackground::readVideoFrame() {
     return true;
 }
 
+void AnimatedBackground::videoReaderLoop() {
+    std::vector<unsigned char> frame(m_videoFrame.size());
+    while (!m_stopVideoThread) {
+        const size_t read = std::fread(frame.data(), 1, frame.size(), m_videoPipe);
+        if (read != frame.size()) break;
+        flipRows(frame, m_videoWidth, m_videoHeight);
+        {
+            std::lock_guard<std::mutex> lock(m_videoFrameMutex);
+            m_pendingVideoFrame = frame;
+            m_pendingVideoFrameReady = true;
+        }
+    }
+}
+
 GLuint AnimatedBackground::update(
     OverlayBackgroundType type,
     OverlayBackgroundFit fit,
     const std::string& path,
     float timestampSeconds,
     int outputWidth,
-    int outputHeight
+    int outputHeight,
+    bool realtime,
+    OverlayVideoDecoder decoder,
+    int videoFps
 ) {
     if (type == OverlayBackgroundType::None || path.empty()) {
         if (m_type != OverlayBackgroundType::None || m_texture != 0 || m_videoPipe) reset();
@@ -239,14 +283,29 @@ GLuint AnimatedBackground::update(
     } else if (type == OverlayBackgroundType::LoopedVideo) {
         const bool dimensionsChanged = outputWidth != m_videoWidth || outputHeight != m_videoHeight;
         const bool fitChanged = fit != m_videoFit;
+        const bool decoderChanged = decoder != m_videoDecoder;
+        const bool fpsChanged = std::clamp(videoFps, 1, 60) != m_videoFps;
+        const bool modeChanged = realtime != m_videoRealtime;
         const bool movedBackwards = timestampSeconds + 0.001f < m_videoStartTimestamp;
-        if (!m_videoPipe || dimensionsChanged || fitChanged || movedBackwards) {
-            if (!startVideo(path, fit, timestampSeconds, outputWidth, outputHeight)) return 0;
+        if (!m_videoPipe || dimensionsChanged || fitChanged || decoderChanged ||
+            fpsChanged || modeChanged || (!realtime && movedBackwards)) {
+            if (!startVideo(
+                    path, fit, timestampSeconds, outputWidth, outputHeight,
+                    realtime, decoder, videoFps)) return 0;
         }
-        const int desiredFrame = std::max(
-            0, static_cast<int>((timestampSeconds - m_videoStartTimestamp) * 30.0f));
-        while (m_videoFrameIndex < desiredFrame) {
-            if (!readVideoFrame()) break;
+        if (realtime) {
+            std::lock_guard<std::mutex> lock(m_videoFrameMutex);
+            if (m_pendingVideoFrameReady) {
+                upload(m_pendingVideoFrame.data(), m_videoWidth, m_videoHeight);
+                m_pendingVideoFrameReady = false;
+            }
+        } else {
+            const int desiredFrame = std::max(
+                0, static_cast<int>(
+                    (timestampSeconds - m_videoStartTimestamp) * m_videoFps));
+            while (m_videoFrameIndex < desiredFrame) {
+                if (!readVideoFrame()) break;
+            }
         }
     }
     return m_texture;
@@ -269,4 +328,9 @@ void AnimatedBackground::reset() {
     m_videoFrameIndex = -1;
     m_videoStartTimestamp = 0.0f;
     m_videoFit = OverlayBackgroundFit::Cover;
+    m_videoDecoder = OverlayVideoDecoder::Auto;
+    m_videoFps = 30;
+    m_videoRealtime = false;
+    m_pendingVideoFrame.clear();
+    m_pendingVideoFrameReady = false;
 }

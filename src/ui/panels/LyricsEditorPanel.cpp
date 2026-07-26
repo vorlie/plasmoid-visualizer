@@ -128,7 +128,18 @@ void UIManager::renderLyricsEditor(AppState& state, AudioEngine& audioEngine) {
             "Background X", &layer.backgroundOffsetX, -1.0f, 1.0f, "%.3f");
         ImGui::SliderFloat(
             "Background Y", &layer.backgroundOffsetY, -1.0f, 1.0f, "%.3f");
-        ImGui::TextDisabled("Video backgrounds are decoded and looped through FFmpeg.");
+        if (layer.backgroundType == OverlayBackgroundType::LoopedVideo) {
+            const char* decoders[] = {
+                "Auto hardware acceleration", "Software (CPU)", "D3D11VA (Windows GPU)"};
+            int decoder = static_cast<int>(layer.videoDecoder);
+            if (ImGui::Combo(
+                    "Video decoder", &decoder, decoders, IM_ARRAYSIZE(decoders))) {
+                layer.videoDecoder = static_cast<OverlayVideoDecoder>(decoder);
+            }
+            ImGui::SliderInt("Background video FPS", &layer.videoFps, 10, 60);
+            ImGui::TextDisabled(
+                "Realtime decoding runs on a worker thread; export remains deterministic.");
+        }
     }
     ImGui::InputText("Artist", layer.artist, sizeof(layer.artist));
     ImGui::InputText("Title", layer.title, sizeof(layer.title));

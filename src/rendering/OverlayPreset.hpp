@@ -55,6 +55,12 @@ enum class OverlayBackgroundFit {
     Stretch = 2
 };
 
+enum class OverlayVideoDecoder {
+    Auto = 0,
+    Software = 1,
+    D3D11VA = 2
+};
+
 struct MediaOverlayLayer {
     bool enabled = true;
     OverlayPresetStyle style;
@@ -65,6 +71,8 @@ struct MediaOverlayLayer {
     float backgroundScale = 1.0f;
     float backgroundOffsetX = 0.0f;
     float backgroundOffsetY = 0.0f;
+    OverlayVideoDecoder videoDecoder = OverlayVideoDecoder::Auto;
+    int videoFps = 30;
     char backgroundPath[512] = "";
     char fontPath[512] = "";
     char lyricsFontPath[512] = "";
