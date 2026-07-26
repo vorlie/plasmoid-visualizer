@@ -71,6 +71,41 @@ struct AppConfig {
     std::string songTitle = "Song Title";
     std::string artistName = "Artist Name";
     bool showSongInfo = true;
+
+    bool mediaOverlayEnabled = true;
+    int mediaBackgroundType = 0;
+    int mediaBackgroundFit = 0;
+    std::string mediaBackgroundPath;
+    float mediaBackgroundOpacity = 1.0f;
+    float mediaBackgroundDimming = 0.15f;
+    float mediaBackgroundScale = 1.0f;
+    float mediaBackgroundOffsetX = 0.0f;
+    float mediaBackgroundOffsetY = 0.0f;
+    std::string mediaFontPath;
+    std::string mediaLyricsFontPath;
+    std::string mediaArtist = "Alan Walker ft. K-391, Tungevaag, Mangoo";
+    std::string mediaTitle = "Play";
+    std::string mediaLyricSource;
+    std::string mediaLyricFilePath = "lyrics.lrc";
+    bool mediaTopSpectrum = true;
+    bool mediaBottomSpectrum = true;
+    float mediaOpacity = 1.0f;
+    float mediaSpectrumGain = 1.35f;
+    float mediaSpectrumAmplitudeCap = 1.0f;
+    int mediaSpectrumBarCount = 96;
+    float mediaSpectrumBarWidth = 0.78f;
+    float mediaSpectrumLineThickness = 0.0022f;
+    float mediaTopSpectrumHeight = 0.027f;
+    float mediaBottomSpectrumHeight = 0.035f;
+    float mediaTopMargin = 0.06f;
+    float mediaBottomMargin = 0.07f;
+    float mediaArtistTextScale = 0.62f;
+    float mediaTitleTextScale = 0.76f;
+    float mediaTimestampTextScale = 0.74f;
+    float mediaLyricsTextScale = 1.18f;
+    bool mediaBlurredBand = true;
+    float mediaBandHeight = 0.115f;
+    float mediaBandOpacity = 0.72f;
     
     int audioMode; // enum cast
     std::string captureDeviceName;

@@ -29,6 +29,13 @@ if(BUILD_TESTING)
     )
     target_include_directories(XYOscilloscopeEngineTests PRIVATE src/rendering)
     add_test(NAME XYOscilloscopeEngineTests COMMAND XYOscilloscopeEngineTests)
+
+    add_executable(Utf8PathsTests
+        tests/Utf8PathsTests.cpp
+        src/platform/Utf8Paths.cpp
+    )
+    target_include_directories(Utf8PathsTests PRIVATE src/platform)
+    add_test(NAME Utf8PathsTests COMMAND Utf8PathsTests)
 endif()
 
 # Source files
@@ -43,22 +50,27 @@ set(SOURCES
     src/config/ConfigLogic.cpp
     src/export/VideoRenderManager.cpp
     src/platform/SystemStats.cpp
+    src/platform/Utf8Paths.cpp
     src/rendering/Visualizer.cpp
+    src/rendering/AnimatedBackground.cpp
     src/rendering/VisualizerGeometry.cpp
     src/rendering/XYOscilloscopeEngine.cpp
     src/rendering/ShaderProgram.cpp
     src/rendering/Framebuffer.cpp
     src/rendering/Texture2D.cpp
     src/rendering/FontAtlas.cpp
+    src/rendering/GaussianBlurRenderer.cpp
     src/rendering/BloomRenderer.cpp
     src/rendering/StbImplementations.cpp
     src/rendering/ParticleSystem.cpp
     src/rendering/RenderManager.cpp
+    src/rendering/OverlayPreset.cpp
     src/ui/UIManager.cpp
     src/ui/panels/AudioSettingsPanel.cpp
     src/ui/panels/BackgroundPanel.cpp
     src/ui/panels/DiagnosticsPanels.cpp
     src/ui/panels/LayerPanels.cpp
+    src/ui/panels/LyricsEditorPanel.cpp
     src/ui/panels/PlaybackPanels.cpp
     third_party/kissfft/kiss_fft.c
     third_party/tinyexpr/tinyexpr.c

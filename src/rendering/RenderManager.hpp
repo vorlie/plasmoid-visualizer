@@ -10,6 +10,9 @@
 #include "ParticleSystem.hpp"
 #include "BloomRenderer.hpp"
 #include "XYOscilloscopeEngine.hpp"
+#include "OverlayPreset.hpp"
+#include "GaussianBlurRenderer.hpp"
+#include "AnimatedBackground.hpp"
 #include <vector>
 #include <unordered_map>
 
@@ -68,11 +71,24 @@ public:
         const std::vector<float>* offlineMono = nullptr
     );
 
+    void renderMediaBackground(
+        const AppState& state,
+        Visualizer& visualizer,
+        GLuint texture,
+        int width,
+        int height);
+
 private:
     BloomRenderer m_bloomRenderer;
     Framebuffer m_sceneBuffer;
     Framebuffer m_slowPhosphorBuffer;
     XYOscilloscopeEngine m_xyEngine;
+    OverlayPresetRenderer m_overlayRenderer;
+    GaussianBlurRenderer m_overlayBlurRenderer;
+    AnimatedBackground m_overlayBackground;
+    std::string m_loadedOverlayFont;
+    std::string m_loadedLyricsFont;
+    std::vector<float> m_overlayPrevMagnitudes;
     std::unordered_map<LayerId, std::uint64_t> m_xyCursors;
     GLuint m_captureFbo = 0;
     GLuint m_captureTex = 0;

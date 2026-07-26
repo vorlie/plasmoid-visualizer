@@ -1,4 +1,5 @@
 #include "VideoRenderManager.hpp"
+#include "Utf8Paths.hpp"
 #include <iostream>
 #include <GL/glew.h>
 
@@ -81,7 +82,8 @@ void VideoRenderManager::startRender(AppState& state, AudioEngine& audioEngine) 
     std::cout << "Starting FFmpeg render: " << cmd << std::endl;
     
 #ifdef _WIN32
-    m_pipe = _popen(cmd.c_str(), "wb");
+    const std::wstring wideCommand = Utf8Paths::toWide(cmd);
+    m_pipe = wideCommand.empty() ? nullptr : _wpopen(wideCommand.c_str(), L"wb");
 #else
     m_pipe = popen(cmd.c_str(), "w");
 #endif

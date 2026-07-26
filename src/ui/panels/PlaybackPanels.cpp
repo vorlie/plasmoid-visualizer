@@ -10,6 +10,7 @@
 #include <vector>
 #include <filesystem>
 #include "VideoRenderManager.hpp"
+#include "Utf8Paths.hpp"
 
 namespace fs = std::filesystem;
 
@@ -25,8 +26,12 @@ void UIManager::renderPlaylist(AppState& state, AudioEngine& audioEngine) {
             for (const auto& file : state.musicFiles) {
                 bool isSelected = (std::string(state.filePath).find(file) != std::string::npos);
                 if (ImGui::Selectable(file.c_str(), isSelected)) {
-                    fs::path fullPath = fs::path(state.musicFolderPath) / file;
-                    strncpy(state.filePath, fullPath.string().c_str(), sizeof(state.filePath));
+                    const fs::path fullPath =
+                        Utf8Paths::fromUtf8(state.musicFolderPath) /
+                        Utf8Paths::fromUtf8(file);
+                    const std::string fullPathUtf8 = Utf8Paths::toUtf8(fullPath);
+                    strncpy(state.filePath, fullPathUtf8.c_str(), sizeof(state.filePath) - 1);
+                    state.filePath[sizeof(state.filePath) - 1] = '\0';
                     if (audioEngine.loadFile(state.filePath)) {
                         state.currentAudioMode = AudioMode::File;
                         audioEngine.play();

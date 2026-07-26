@@ -20,9 +20,11 @@ std::filesystem::path AssetPaths::defaultFont() {
 
 #ifdef _WIN32
     if (const char* windowsDirectory = std::getenv("WINDIR")) {
-        const auto consola = std::filesystem::path(windowsDirectory) / "Fonts" / "consola.ttf";
-        if (std::filesystem::exists(consola)) {
-            return consola;
+        const auto fonts = std::filesystem::path(windowsDirectory) / "Fonts";
+        const char* candidates[] = {"YuGothM.ttc", "meiryo.ttc", "msgothic.ttc", "consola.ttf"};
+        for (const char* candidate : candidates) {
+            const auto path = fonts / candidate;
+            if (std::filesystem::exists(path)) return path;
         }
     }
 #else

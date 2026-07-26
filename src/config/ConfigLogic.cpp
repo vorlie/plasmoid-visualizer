@@ -1,5 +1,6 @@
 #include "ConfigLogic.hpp"
 #include "ConfigManager.hpp"
+#include "Utf8Paths.hpp"
 #include <filesystem>
 #include <iostream>
 #include <cstring>
@@ -12,13 +13,14 @@ void ConfigLogic::scanMusicFolder(AppState& state, const char* path) {
     state.musicFiles.clear();
     if (!path || strlen(path) == 0) return;
     try {
-        if (fs::exists(path) && fs::is_directory(path)) {
-            for (const auto& entry : fs::directory_iterator(path)) {
+        const fs::path folder = Utf8Paths::fromUtf8(path);
+        if (fs::exists(folder) && fs::is_directory(folder)) {
+            for (const auto& entry : fs::directory_iterator(folder)) {
                 if (entry.is_regular_file()) {
-                    std::string ext = entry.path().extension().string();
+                    std::string ext = Utf8Paths::toUtf8(entry.path().extension());
                     std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
                     if (ext == ".mp3" || ext == ".wav" || ext == ".flac" || ext == ".ogg") {
-                        state.musicFiles.push_back(entry.path().filename().string());
+                        state.musicFiles.push_back(Utf8Paths::toUtf8(entry.path().filename()));
                     }
                 }
             }
@@ -53,6 +55,41 @@ void ConfigLogic::saveSettings(const AppState& state) {
     config.songTitle = state.songTitle;
     config.artistName = state.artistName;
     config.showSongInfo = state.showSongInfo;
+
+    config.mediaOverlayEnabled = state.mediaOverlay.enabled;
+    config.mediaBackgroundType = static_cast<int>(state.mediaOverlay.backgroundType);
+    config.mediaBackgroundFit = static_cast<int>(state.mediaOverlay.backgroundFit);
+    config.mediaBackgroundPath = state.mediaOverlay.backgroundPath;
+    config.mediaBackgroundOpacity = state.mediaOverlay.backgroundOpacity;
+    config.mediaBackgroundDimming = state.mediaOverlay.backgroundDimming;
+    config.mediaBackgroundScale = state.mediaOverlay.backgroundScale;
+    config.mediaBackgroundOffsetX = state.mediaOverlay.backgroundOffsetX;
+    config.mediaBackgroundOffsetY = state.mediaOverlay.backgroundOffsetY;
+    config.mediaFontPath = state.mediaOverlay.fontPath;
+    config.mediaLyricsFontPath = state.mediaOverlay.lyricsFontPath;
+    config.mediaArtist = state.mediaOverlay.artist;
+    config.mediaTitle = state.mediaOverlay.title;
+    config.mediaLyricSource = state.mediaOverlay.lyricSource;
+    config.mediaLyricFilePath = state.mediaOverlay.lyricFilePath;
+    config.mediaTopSpectrum = state.mediaOverlay.style.showTopSpectrum;
+    config.mediaBottomSpectrum = state.mediaOverlay.style.showBottomSpectrum;
+    config.mediaOpacity = state.mediaOverlay.style.opacity;
+    config.mediaSpectrumGain = state.mediaOverlay.style.spectrumGain;
+    config.mediaSpectrumAmplitudeCap = state.mediaOverlay.style.spectrumAmplitudeCap;
+    config.mediaSpectrumBarCount = state.mediaOverlay.style.spectrumBarCount;
+    config.mediaSpectrumBarWidth = state.mediaOverlay.style.spectrumBarWidth;
+    config.mediaSpectrumLineThickness = state.mediaOverlay.style.spectrumLineThickness;
+    config.mediaTopSpectrumHeight = state.mediaOverlay.style.topSpectrumHeight;
+    config.mediaBottomSpectrumHeight = state.mediaOverlay.style.bottomSpectrumHeight;
+    config.mediaTopMargin = state.mediaOverlay.style.topMargin;
+    config.mediaBottomMargin = state.mediaOverlay.style.bottomMargin;
+    config.mediaArtistTextScale = state.mediaOverlay.style.artistTextScale;
+    config.mediaTitleTextScale = state.mediaOverlay.style.titleTextScale;
+    config.mediaTimestampTextScale = state.mediaOverlay.style.timestampTextScale;
+    config.mediaLyricsTextScale = state.mediaOverlay.style.lyricsTextScale;
+    config.mediaBlurredBand = state.mediaOverlay.style.blurredLyricsBand;
+    config.mediaBandHeight = state.mediaOverlay.style.lyricsBandHeight;
+    config.mediaBandOpacity = state.mediaOverlay.style.lyricsBandOpacity;
     
     config.vidWidth = state.videoSettings.width;
     config.vidHeight = state.videoSettings.height;
@@ -162,6 +199,47 @@ void ConfigLogic::loadSettings(AppState& state) {
         strncpy(state.songTitle, config.songTitle.c_str(), sizeof(state.songTitle));
         strncpy(state.artistName, config.artistName.c_str(), sizeof(state.artistName));
         state.showSongInfo = config.showSongInfo;
+
+        state.mediaOverlay.enabled = config.mediaOverlayEnabled;
+        state.mediaOverlay.backgroundType =
+            static_cast<OverlayBackgroundType>(std::clamp(config.mediaBackgroundType, 0, 3));
+        state.mediaOverlay.backgroundFit =
+            static_cast<OverlayBackgroundFit>(std::clamp(config.mediaBackgroundFit, 0, 2));
+        strncpy(state.mediaOverlay.backgroundPath, config.mediaBackgroundPath.c_str(), sizeof(state.mediaOverlay.backgroundPath) - 1);
+        state.mediaOverlay.backgroundOpacity = config.mediaBackgroundOpacity;
+        state.mediaOverlay.backgroundDimming = config.mediaBackgroundDimming;
+        state.mediaOverlay.backgroundScale = config.mediaBackgroundScale;
+        state.mediaOverlay.backgroundOffsetX = config.mediaBackgroundOffsetX;
+        state.mediaOverlay.backgroundOffsetY = config.mediaBackgroundOffsetY;
+        strncpy(state.mediaOverlay.fontPath, config.mediaFontPath.c_str(), sizeof(state.mediaOverlay.fontPath) - 1);
+        strncpy(state.mediaOverlay.lyricsFontPath, config.mediaLyricsFontPath.c_str(), sizeof(state.mediaOverlay.lyricsFontPath) - 1);
+        strncpy(state.mediaOverlay.artist, config.mediaArtist.c_str(), sizeof(state.mediaOverlay.artist) - 1);
+        strncpy(state.mediaOverlay.title, config.mediaTitle.c_str(), sizeof(state.mediaOverlay.title) - 1);
+        if (!config.mediaLyricSource.empty()) {
+            strncpy(state.mediaOverlay.lyricSource, config.mediaLyricSource.c_str(), sizeof(state.mediaOverlay.lyricSource) - 1);
+            state.mediaOverlay.lyrics.parseLrc(state.mediaOverlay.lyricSource);
+        }
+        strncpy(state.mediaOverlay.lyricFilePath, config.mediaLyricFilePath.c_str(), sizeof(state.mediaOverlay.lyricFilePath) - 1);
+        state.mediaOverlay.style.showTopSpectrum = config.mediaTopSpectrum;
+        state.mediaOverlay.style.showBottomSpectrum = config.mediaBottomSpectrum;
+        state.mediaOverlay.style.opacity = config.mediaOpacity;
+        state.mediaOverlay.style.spectrumGain = config.mediaSpectrumGain;
+        state.mediaOverlay.style.spectrumAmplitudeCap =
+            config.mediaSpectrumAmplitudeCap;
+        state.mediaOverlay.style.spectrumBarCount = config.mediaSpectrumBarCount;
+        state.mediaOverlay.style.spectrumBarWidth = config.mediaSpectrumBarWidth;
+        state.mediaOverlay.style.spectrumLineThickness = config.mediaSpectrumLineThickness;
+        state.mediaOverlay.style.topSpectrumHeight = config.mediaTopSpectrumHeight;
+        state.mediaOverlay.style.bottomSpectrumHeight = config.mediaBottomSpectrumHeight;
+        state.mediaOverlay.style.topMargin = config.mediaTopMargin;
+        state.mediaOverlay.style.bottomMargin = config.mediaBottomMargin;
+        state.mediaOverlay.style.artistTextScale = config.mediaArtistTextScale;
+        state.mediaOverlay.style.titleTextScale = config.mediaTitleTextScale;
+        state.mediaOverlay.style.timestampTextScale = config.mediaTimestampTextScale;
+        state.mediaOverlay.style.lyricsTextScale = config.mediaLyricsTextScale;
+        state.mediaOverlay.style.blurredLyricsBand = config.mediaBlurredBand;
+        state.mediaOverlay.style.lyricsBandHeight = config.mediaBandHeight;
+        state.mediaOverlay.style.lyricsBandOpacity = config.mediaBandOpacity;
 
         state.videoSettings.width = config.vidWidth;
         state.videoSettings.height = config.vidHeight;

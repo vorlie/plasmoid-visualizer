@@ -1,4 +1,5 @@
 #include "RenderManager.hpp"
+#include "AssetPaths.hpp"
 #include <algorithm>
 #include <cmath>
 #include <iostream>
@@ -70,6 +71,31 @@ void RenderManager::renderToTarget(
             }
             analysisEngine.computeFFT(audioBuffer);
         }
+
+        const float overlayTime = audioEngine.getPosition();
+        const GLuint overlayBackgroundTexture = m_overlayBackground.update(
+            state.mediaOverlay.enabled
+                ? state.mediaOverlay.backgroundType
+                : OverlayBackgroundType::None,
+            state.mediaOverlay.backgroundFit,
+            state.mediaOverlay.backgroundPath,
+            overlayTime, width, height);
+        const std::string overlayFont = state.mediaOverlay.fontPath[0] != '\0'
+            ? state.mediaOverlay.fontPath
+            : AssetPaths::defaultFont().string();
+        if (state.mediaOverlay.enabled && !overlayFont.empty() &&
+            m_loadedOverlayFont != overlayFont) {
+            visualizer.loadFont(overlayFont);
+            m_loadedOverlayFont = overlayFont;
+        }
+        const std::string lyricsFont = state.mediaOverlay.lyricsFontPath[0] != '\0'
+            ? state.mediaOverlay.lyricsFontPath
+            : overlayFont;
+        if (state.mediaOverlay.enabled && !lyricsFont.empty() &&
+            m_loadedLyricsFont != lyricsFont) {
+            visualizer.loadLyricsFont(lyricsFont);
+            m_loadedLyricsFont = lyricsFont;
+        }
         
         if (state.particlesEnabled || state.zenKunModeEnabled) {
             analysisEngine.setBeatSensitivity(state.beatSensitivity);
@@ -136,6 +162,7 @@ void RenderManager::renderToTarget(
         if (state.zenKunModeEnabled) {
             visualizer.drawBackground(state.currentBgScale + state.currentShakeZoom, state.currentShakeX, state.currentShakeY, state.currentShakeTilt);
         }
+        renderMediaBackground(state, visualizer, overlayBackgroundTexture, width, height);
 
         glEnable(GL_BLEND);
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
@@ -200,27 +227,31 @@ void RenderManager::renderToTarget(
         }
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
-        // 4. UI Overlay
-        if (state.showSongInfo) {
-            float textColor[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
-            float shadowColor[4] = { 0.0f, 0.0f, 0.0f, 0.5f };
-            float pillColor[4] = { 0.0f, 0.0f, 0.0f, 0.7f };
-            
-            std::string info = std::string(state.artistName) + " - " + std::string(state.songTitle);
-            
-            // Bottom Left Pill & Text
-            visualizer.drawRoundedRect(-0.7f, -0.85f, 0.55f, 0.1f, 0.05f, pillColor);
-            visualizer.drawText(info, -0.92f, -0.865f, 0.7f, textColor);
-            
-            // Bottom Right (Time)
-            float sec = audioEngine.getPosition();
-            int m = (int)sec / 60;
-            int s = (int)sec % 60;
-            char timeBuf[32];
-            snprintf(timeBuf, sizeof(timeBuf), "%d:%02d", m, s);
-            
-            visualizer.drawRoundedRect(0.85f, -0.85f, 0.12f, 0.1f, 0.05f, pillColor);
-            visualizer.drawText(timeBuf, 0.76f, -0.865f, 0.8f, textColor);
+        // 4. Transparent metadata/spectrum/lyrics preset. This native OpenGL
+        // pass is shared with offline rendering; ImGui remains editor-only.
+        if (state.mediaOverlay.enabled) {
+            LayerConfig overlaySpectrum;
+            overlaySpectrum.numBars = 192;
+            overlaySpectrum.gain = 0.012f;
+            overlaySpectrum.attack = 0.82f;
+            overlaySpectrum.falloff = 0.88f;
+            overlaySpectrum.smoothing = 1;
+            const auto spectrum = analysisEngine.computeLayerMagnitudes(
+                overlaySpectrum, m_overlayPrevMagnitudes);
+            OverlayFrameData frame;
+            frame.fft = &spectrum;
+            frame.lyrics = &state.mediaOverlay.lyrics;
+            frame.timestampSeconds = audioEngine.getPosition();
+            frame.artist = state.mediaOverlay.artist;
+            frame.title = state.mediaOverlay.title;
+            frame.previewLyric = state.mediaOverlay.lyricPreview;
+            if (state.mediaOverlay.style.blurredLyricsBand) {
+                frame.blurredSceneTexture = m_overlayBlurRenderer.blur(
+                    m_sceneBuffer.texture(), width, height);
+                glBindFramebuffer(GL_FRAMEBUFFER, static_cast<GLuint>(targetFramebuffer));
+                glViewport(0, 0, width, height);
+            }
+            m_overlayRenderer.render(visualizer, state.mediaOverlay.style, frame);
         }
 
     } catch (const std::exception& e) {
@@ -246,6 +277,33 @@ void RenderManager::renderOfflineFrame(
     bool isBeat = false;
 
     try {
+        const float overlayTime =
+            static_cast<float>(state.videoStatus.currentFrame) /
+            static_cast<float>(std::max(state.videoSettings.fps, 1));
+        const GLuint overlayBackgroundTexture = m_overlayBackground.update(
+            state.mediaOverlay.enabled
+                ? state.mediaOverlay.backgroundType
+                : OverlayBackgroundType::None,
+            state.mediaOverlay.backgroundFit,
+            state.mediaOverlay.backgroundPath,
+            overlayTime, width, height);
+        const std::string overlayFont = state.mediaOverlay.fontPath[0] != '\0'
+            ? state.mediaOverlay.fontPath
+            : AssetPaths::defaultFont().string();
+        if (state.mediaOverlay.enabled && !overlayFont.empty() &&
+            m_loadedOverlayFont != overlayFont) {
+            visualizer.loadFont(overlayFont);
+            m_loadedOverlayFont = overlayFont;
+        }
+        const std::string lyricsFont = state.mediaOverlay.lyricsFontPath[0] != '\0'
+            ? state.mediaOverlay.lyricsFontPath
+            : overlayFont;
+        if (state.mediaOverlay.enabled && !lyricsFont.empty() &&
+            m_loadedLyricsFont != lyricsFont) {
+            visualizer.loadLyricsFont(lyricsFont);
+            m_loadedLyricsFont = lyricsFont;
+        }
+
         // Setup capture FBO if needed
         if (m_captureFbo == 0 || m_captureW != width || m_captureH != height) {
             if (m_captureFbo != 0) {
@@ -327,6 +385,7 @@ void RenderManager::renderOfflineFrame(
         if (state.zenKunModeEnabled) {
             visualizer.drawBackground(state.currentBgScale + state.currentShakeZoom, state.currentShakeX, state.currentShakeY, state.currentShakeTilt);
         }
+        renderMediaBackground(state, visualizer, overlayBackgroundTexture, width, height);
 
         glEnable(GL_BLEND);
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
@@ -410,28 +469,94 @@ void RenderManager::renderOfflineFrame(
         }
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
-        // 4. UI Overlay (Song Info - Offline)
-        if (state.showSongInfo) {
-            float textColor[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
-            float pillColor[4] = { 0.0f, 0.0f, 0.0f, 0.7f };
-            
-            std::string info = std::string(state.artistName) + " - " + std::string(state.songTitle);
-            
-            float sec = (float)state.videoStatus.currentFrame / (float)state.videoSettings.fps;
-            int m = (int)sec / 60;
-            int s = (int)sec % 60;
-            char timeBuf[32];
-            snprintf(timeBuf, sizeof(timeBuf), "%d:%02d", m, s);
-
-            visualizer.drawRoundedRect(-0.7f, -0.85f, 0.55f, 0.1f, 0.05f, pillColor);
-            visualizer.drawText(info, -0.92f, -0.865f, 0.7f, textColor);
-
-            visualizer.drawRoundedRect(0.85f, -0.85f, 0.12f, 0.1f, 0.05f, pillColor);
-            visualizer.drawText(timeBuf, 0.76f, -0.865f, 0.8f, textColor);
+        // 4. Matching offline overlay for deterministic video exports.
+        if (state.mediaOverlay.enabled) {
+            LayerConfig overlaySpectrum;
+            overlaySpectrum.numBars = 192;
+            overlaySpectrum.gain = 0.012f;
+            overlaySpectrum.attack = 0.82f;
+            overlaySpectrum.falloff = 0.88f;
+            overlaySpectrum.smoothing = 1;
+            const auto spectrum = analysisEngine.computeLayerMagnitudes(
+                overlaySpectrum, m_overlayPrevMagnitudes);
+            OverlayFrameData frame;
+            frame.fft = &spectrum;
+            frame.lyrics = &state.mediaOverlay.lyrics;
+            frame.timestampSeconds =
+                static_cast<float>(state.videoStatus.currentFrame) /
+                static_cast<float>(std::max(state.videoSettings.fps, 1));
+            frame.artist = state.mediaOverlay.artist;
+            frame.title = state.mediaOverlay.title;
+            frame.previewLyric = state.mediaOverlay.lyricPreview;
+            if (state.mediaOverlay.style.blurredLyricsBand) {
+                frame.blurredSceneTexture = m_overlayBlurRenderer.blur(
+                    m_sceneBuffer.texture(), width, height);
+                glBindFramebuffer(GL_FRAMEBUFFER, static_cast<GLuint>(targetFramebuffer));
+                glViewport(0, 0, width, height);
+            }
+            m_overlayRenderer.render(visualizer, state.mediaOverlay.style, frame);
         }
 
     } catch (const std::exception& e) {
         std::cerr << "EXCEPTION in RenderManager (Offline): " << e.what() << std::endl;
+    }
+}
+
+void RenderManager::renderMediaBackground(
+    const AppState& state,
+    Visualizer& visualizer,
+    GLuint texture,
+    int width,
+    int height
+) {
+    if (texture == 0 || width <= 0 || height <= 0) return;
+    const auto& layer = state.mediaOverlay;
+    float halfWidth = 1.0f;
+    float halfHeight = 1.0f;
+    float textureX = 0.0f;
+    float textureY = 0.0f;
+    float textureWidth = 1.0f;
+    float textureHeight = 1.0f;
+
+    // Video frames are already fitted by FFmpeg. Still images and GIFs retain
+    // their native dimensions, so fit/crop them here without distortion.
+    if (layer.backgroundType != OverlayBackgroundType::LoopedVideo &&
+        layer.backgroundFit != OverlayBackgroundFit::Stretch &&
+        m_overlayBackground.width() > 0 && m_overlayBackground.height() > 0) {
+        const float sourceAspect =
+            static_cast<float>(m_overlayBackground.width()) /
+            static_cast<float>(m_overlayBackground.height());
+        const float targetAspect = static_cast<float>(width) / static_cast<float>(height);
+        if (layer.backgroundFit == OverlayBackgroundFit::Contain) {
+            if (sourceAspect > targetAspect) {
+                halfHeight = targetAspect / sourceAspect;
+            } else {
+                halfWidth = sourceAspect / targetAspect;
+            }
+        } else if (sourceAspect > targetAspect) {
+            textureWidth = targetAspect / sourceAspect;
+            textureX = (1.0f - textureWidth) * 0.5f;
+        } else {
+            textureHeight = sourceAspect / targetAspect;
+            textureY = (1.0f - textureHeight) * 0.5f;
+        }
+    }
+
+    const float scale = std::clamp(layer.backgroundScale, 0.1f, 4.0f);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    visualizer.drawTextureRegion(
+        texture,
+        layer.backgroundOffsetX, layer.backgroundOffsetY,
+        halfWidth * scale, halfHeight * scale,
+        textureX, textureY, textureWidth, textureHeight,
+        std::clamp(layer.backgroundOpacity, 0.0f, 1.0f));
+
+    if (layer.backgroundDimming > 0.0f) {
+        const float dim[4] = {
+            0.0f, 0.0f, 0.0f,
+            std::clamp(layer.backgroundDimming, 0.0f, 1.0f)};
+        visualizer.drawRoundedRect(0.0f, 0.0f, 1.0f, 1.0f, 0.0f, dim);
     }
 }
 

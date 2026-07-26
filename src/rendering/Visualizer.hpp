@@ -11,6 +11,11 @@
 #include <vector>
 #include <string>
 
+enum class VisualizerFont {
+    Primary,
+    Lyrics
+};
+
 class Visualizer {
 public:
     Visualizer();
@@ -49,6 +54,10 @@ public:
     void endPersistence();
     void drawPersistenceBuffer();
     void drawTexture(GLuint texture, float opacity = 1.0f);
+    void drawTextureRegion(
+        GLuint texture, float centerX, float centerY, float halfWidth, float halfHeight,
+        float textureX, float textureY, float textureWidth, float textureHeight,
+        float opacity = 1.0f);
     [[nodiscard]] GLuint persistenceTexture() const noexcept {
         return m_persistenceBuffer.texture();
     }
@@ -58,8 +67,14 @@ public:
     void drawBackground(float scale, float shakeX, float shakeY, float rotation);
     void clearBackground();
     void drawRoundedRect(float x, float y, float w, float h, float radius, const float color[4]);
-    void drawText(const std::string& text, float x, float y, float scale, const float color[4]);
+    void drawText(
+        const std::string& text, float x, float y, float scale,
+        const float color[4], VisualizerFont font = VisualizerFont::Primary);
+    [[nodiscard]] float measureTextWidth(
+        const std::string& text, float scale,
+        VisualizerFont font = VisualizerFont::Primary);
     bool loadFont(const std::string& path);
+    bool loadLyricsFont(const std::string& path);
 
 private:
     ShaderProgram m_shaderProgram;
@@ -97,6 +112,7 @@ private:
     Texture2D m_backgroundTexture;
 
     FontAtlas m_fontAtlas;
+    FontAtlas m_lyricsFontAtlas;
 
     void initShaders();
     void initQuad();

@@ -8,6 +8,7 @@ A high-performance C++ Audio Visualizer suite featuring a powerful standalone Op
 
 ## Highlights 🚀
 - **Multi-Layer Engine**: Stack different visualizers (Bars, XY, Particles) with independent frequency analysis.
+- **Media Overlay Layer**: Always-on-top metadata, dual spectra, synchronized LRC lyrics, a Gaussian-blurred lyric band, system-font selection, and still/GIF/looped-video backgrounds. Configure it from the Layer Manager or `View > Media Overlay`.
 - Smooth spline curves with area fill
 - Real-time audio analysis with logarithmic mapping
 - Comprehensive Debug and System Monitoring

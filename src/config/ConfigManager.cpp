@@ -1,4 +1,5 @@
 #include "ConfigManager.hpp"
+#include "Utf8Paths.hpp"
 #include "toml.hpp"
 #include <fstream>
 #include <iostream>
@@ -48,7 +49,7 @@ void readXYSettings(const toml::table& table, XYLayerSettings& xy) {
 bool ConfigManager::save(const std::string& filename, const AppConfig& config) {
     std::string fullPath = filename.empty() ? getConfigPath() : filename;
     
-    fs::path p(fullPath);
+    const fs::path p = Utf8Paths::fromUtf8(fullPath);
     if (p.has_parent_path() && !fs::exists(p.parent_path())) {
         fs::create_directories(p.parent_path());
     }
@@ -96,6 +97,43 @@ bool ConfigManager::save(const std::string& filename, const AppConfig& config) {
         {"measurement_overlay", config.oscilloscopeDisplay.measurementOverlay}, {"overlay_in_video", config.oscilloscopeDisplay.overlayInVideo}
     });
 
+    tbl.insert_or_assign("media_overlay", toml::table{
+        {"enabled", config.mediaOverlayEnabled},
+        {"background_type", config.mediaBackgroundType},
+        {"background_fit", config.mediaBackgroundFit},
+        {"background_path", config.mediaBackgroundPath},
+        {"background_opacity", config.mediaBackgroundOpacity},
+        {"background_dimming", config.mediaBackgroundDimming},
+        {"background_scale", config.mediaBackgroundScale},
+        {"background_offset_x", config.mediaBackgroundOffsetX},
+        {"background_offset_y", config.mediaBackgroundOffsetY},
+        {"font_path", config.mediaFontPath},
+        {"lyrics_font_path", config.mediaLyricsFontPath},
+        {"artist", config.mediaArtist},
+        {"title", config.mediaTitle},
+        {"lyric_source", config.mediaLyricSource},
+        {"lyric_file_path", config.mediaLyricFilePath},
+        {"top_spectrum", config.mediaTopSpectrum},
+        {"bottom_spectrum", config.mediaBottomSpectrum},
+        {"opacity", config.mediaOpacity},
+        {"spectrum_gain", config.mediaSpectrumGain},
+        {"spectrum_amplitude_cap", config.mediaSpectrumAmplitudeCap},
+        {"spectrum_bar_count", config.mediaSpectrumBarCount},
+        {"spectrum_bar_width", config.mediaSpectrumBarWidth},
+        {"spectrum_line_thickness", config.mediaSpectrumLineThickness},
+        {"top_spectrum_height", config.mediaTopSpectrumHeight},
+        {"bottom_spectrum_height", config.mediaBottomSpectrumHeight},
+        {"top_margin", config.mediaTopMargin},
+        {"bottom_margin", config.mediaBottomMargin},
+        {"artist_text_scale", config.mediaArtistTextScale},
+        {"title_text_scale", config.mediaTitleTextScale},
+        {"timestamp_text_scale", config.mediaTimestampTextScale},
+        {"lyrics_text_scale", config.mediaLyricsTextScale},
+        {"blurred_band", config.mediaBlurredBand},
+        {"band_height", config.mediaBandHeight},
+        {"band_opacity", config.mediaBandOpacity}
+    });
+
     toml::array layersArray;
     for (const auto& layer : config.layers) {
         toml::table layerTable{
@@ -137,7 +175,7 @@ bool ConfigManager::save(const std::string& filename, const AppConfig& config) {
     }
     tbl.insert_or_assign("layers", layersArray);
 
-    std::ofstream file(fullPath);
+    std::ofstream file(p);
     if (!file) return false;
     file << tbl;
     return true;
@@ -145,10 +183,16 @@ bool ConfigManager::save(const std::string& filename, const AppConfig& config) {
 
 bool ConfigManager::load(const std::string& filename, AppConfig& config) {
     std::string fullPath = filename.empty() ? getConfigPath() : filename;
-    if (!fs::exists(fullPath)) return false;
+    const fs::path configPath = Utf8Paths::fromUtf8(fullPath);
+    if (!fs::exists(configPath)) return false;
 
     try {
-        toml::table tbl = toml::parse_file(fullPath);
+        toml::table tbl =
+#ifdef _WIN32
+            toml::parse_file(configPath.wstring());
+#else
+            toml::parse_file(fullPath);
+#endif
 
         if (auto app = tbl["application"].as_table()) {
             config.musicFolder = (*app)["music_folder"].value_or("");
@@ -201,6 +245,44 @@ bool ConfigManager::load(const std::string& filename, AppConfig& config) {
             config.oscilloscopeDisplay.decayColorShift = (*scope)["decay_color_shift"].value_or(0.08f);
             config.oscilloscopeDisplay.measurementOverlay = (*scope)["measurement_overlay"].value_or(false);
             config.oscilloscopeDisplay.overlayInVideo = (*scope)["overlay_in_video"].value_or(false);
+        }
+
+        if (auto overlay = tbl["media_overlay"].as_table()) {
+            config.mediaOverlayEnabled = (*overlay)["enabled"].value_or(true);
+            config.mediaBackgroundType = (*overlay)["background_type"].value_or(0);
+            config.mediaBackgroundFit = (*overlay)["background_fit"].value_or(0);
+            config.mediaBackgroundPath = (*overlay)["background_path"].value_or("");
+            config.mediaBackgroundOpacity = (*overlay)["background_opacity"].value_or(1.0f);
+            config.mediaBackgroundDimming = (*overlay)["background_dimming"].value_or(0.15f);
+            config.mediaBackgroundScale = (*overlay)["background_scale"].value_or(1.0f);
+            config.mediaBackgroundOffsetX = (*overlay)["background_offset_x"].value_or(0.0f);
+            config.mediaBackgroundOffsetY = (*overlay)["background_offset_y"].value_or(0.0f);
+            config.mediaFontPath = (*overlay)["font_path"].value_or("");
+            config.mediaLyricsFontPath = (*overlay)["lyrics_font_path"].value_or("");
+            config.mediaArtist = (*overlay)["artist"].value_or(config.mediaArtist);
+            config.mediaTitle = (*overlay)["title"].value_or(config.mediaTitle);
+            config.mediaLyricSource = (*overlay)["lyric_source"].value_or("");
+            config.mediaLyricFilePath = (*overlay)["lyric_file_path"].value_or("lyrics.lrc");
+            config.mediaTopSpectrum = (*overlay)["top_spectrum"].value_or(true);
+            config.mediaBottomSpectrum = (*overlay)["bottom_spectrum"].value_or(true);
+            config.mediaOpacity = (*overlay)["opacity"].value_or(1.0f);
+            config.mediaSpectrumGain = (*overlay)["spectrum_gain"].value_or(1.35f);
+            config.mediaSpectrumAmplitudeCap =
+                (*overlay)["spectrum_amplitude_cap"].value_or(1.0f);
+            config.mediaSpectrumBarCount = (*overlay)["spectrum_bar_count"].value_or(96);
+            config.mediaSpectrumBarWidth = (*overlay)["spectrum_bar_width"].value_or(0.78f);
+            config.mediaSpectrumLineThickness = (*overlay)["spectrum_line_thickness"].value_or(0.0022f);
+            config.mediaTopSpectrumHeight = (*overlay)["top_spectrum_height"].value_or(0.027f);
+            config.mediaBottomSpectrumHeight = (*overlay)["bottom_spectrum_height"].value_or(0.035f);
+            config.mediaTopMargin = (*overlay)["top_margin"].value_or(0.06f);
+            config.mediaBottomMargin = (*overlay)["bottom_margin"].value_or(0.07f);
+            config.mediaArtistTextScale = (*overlay)["artist_text_scale"].value_or(0.62f);
+            config.mediaTitleTextScale = (*overlay)["title_text_scale"].value_or(0.76f);
+            config.mediaTimestampTextScale = (*overlay)["timestamp_text_scale"].value_or(0.74f);
+            config.mediaLyricsTextScale = (*overlay)["lyrics_text_scale"].value_or(1.18f);
+            config.mediaBlurredBand = (*overlay)["blurred_band"].value_or(true);
+            config.mediaBandHeight = (*overlay)["band_height"].value_or(0.115f);
+            config.mediaBandOpacity = (*overlay)["band_opacity"].value_or(0.72f);
         }
 
         if (auto layers = tbl["layers"].as_array()) {
@@ -271,12 +353,12 @@ std::string ConfigManager::getConfigPath() {
     const char* appData = std::getenv("APPDATA");
     if (!appData) return "config.toml";
     fs::path configDir = fs::path(appData) / "PlasmoidVisualizerStd";
-    return (configDir / "config.toml").string();
+    return Utf8Paths::toUtf8(configDir / "config.toml");
 #else
     const char* home = std::getenv("HOME");
     if (!home) return "config.toml"; // Fallback
 
     fs::path configDir = fs::path(home) / ".config" / "PlasmoidVisualizerStd";
-    return (configDir / "config.toml").string();
+    return Utf8Paths::toUtf8(configDir / "config.toml");
 #endif
 }

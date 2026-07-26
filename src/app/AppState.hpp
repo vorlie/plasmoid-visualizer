@@ -6,6 +6,7 @@
 #include "AnalysisEngine.hpp"
 #include "VisualizerTypes.hpp"
 #include "XYOscilloscopeTypes.hpp"
+#include "OverlayPreset.hpp"
 #include "imgui.h"
 
 enum class AudioMode {
@@ -66,6 +67,8 @@ struct VideoRenderStatus {
 };
 
 struct AppState {
+    AppState();
+
     LayerId nextLayerId = 1;
     // Visualizer layers
     std::vector<VisualizerLayer> layers;
@@ -106,6 +109,9 @@ struct AppState {
     char songTitle[256] = "Song Title";
     char artistName[256] = "Artist Name";
     bool showSongInfo = true;
+
+    // Dedicated background/metadata/spectrum/lyrics rendering layer.
+    MediaOverlayLayer mediaOverlay;
     
     // Dynamic effects state (updated every frame)
     float currentBgScale = 1.0f;
@@ -134,6 +140,7 @@ struct AppState {
     bool showGlobalSettings = true;
     bool showAudioSettings = true;
     bool showZenKunSettings = false;
+    bool showLyricsEditor = false;
 
     int selectedLayerIdx = 0;
 

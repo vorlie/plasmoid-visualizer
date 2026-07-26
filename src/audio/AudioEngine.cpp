@@ -1,5 +1,6 @@
 #define MINIAUDIO_IMPLEMENTATION
 #include "AudioEngine.hpp"
+#include "Utf8Paths.hpp"
 #include <iostream>
 #include <algorithm>
 #include <cmath>
@@ -360,8 +361,15 @@ bool AudioEngine::loadFile(const std::string& filePath) {
     m_isPlaying = false;
     std::cout << "Attempting to load file: " << filePath << std::endl;
 
-    // Check if file exists and get size
-    FILE* f = fopen(filePath.c_str(), "rb");
+    // Keep application paths as UTF-8. Windows' narrow fopen/decoder entry
+    // points use the active ANSI code page and corrupt Japanese filenames.
+    FILE* f = nullptr;
+#ifdef _WIN32
+    const std::wstring widePath = Utf8Paths::toWide(filePath);
+    if (!widePath.empty()) f = _wfopen(widePath.c_str(), L"rb");
+#else
+    f = fopen(filePath.c_str(), "rb");
+#endif
     if (!f) {
         std::cerr << "Failed to open file for reading: " << filePath << std::endl;
         return false;
@@ -379,7 +387,12 @@ bool AudioEngine::loadFile(const std::string& filePath) {
     }
 
     ma_decoder_config decoderConfig = ma_decoder_config_init(ma_format_f32, 0, 0);
-    ma_result result = ma_decoder_init_file(filePath.c_str(), &decoderConfig, &m_decoder);
+    ma_result result = MA_ERROR;
+#ifdef _WIN32
+    result = ma_decoder_init_file_w(widePath.c_str(), &decoderConfig, &m_decoder);
+#else
+    result = ma_decoder_init_file(filePath.c_str(), &decoderConfig, &m_decoder);
+#endif
     if (result != MA_SUCCESS) {
         std::cerr << "Failed to load audio file: " << filePath << " (Error: " << result << ")" << std::endl;
         return false;

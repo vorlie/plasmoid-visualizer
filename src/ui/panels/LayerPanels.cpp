@@ -24,6 +24,14 @@ void UIManager::renderLayerManager(AppState& state) {
             state.selectedLayerIdx = (int)state.layers.size() - 1;
         }
         ImGui::Separator();
+        ImGui::PushID("media_overlay_layer");
+        ImGui::Checkbox("##visible", &state.mediaOverlay.enabled);
+        ImGui::SameLine();
+        if (ImGui::Selectable("Media Overlay  (always on top)", state.showLyricsEditor)) {
+            state.showLyricsEditor = true;
+        }
+        ImGui::PopID();
+        ImGui::Separator();
         for (int i = 0; i < (int)state.layers.size(); i++) {
             ImGui::PushID(i);
             

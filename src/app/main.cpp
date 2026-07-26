@@ -15,12 +15,65 @@
 #include "UIManager.hpp"
 #include "VideoRenderManager.hpp"
 #include "ConfigLogic.hpp"
+#include "AssetPaths.hpp"
 
+#include <filesystem>
 #include <iostream>
 #include <vector>
 #include <string>
 
+#ifdef _WIN32
+#include <Windows.h>
+#endif
+
+namespace {
+std::filesystem::path japaneseFallbackFont() {
+#ifdef _WIN32
+    if (const char* windows = std::getenv("WINDIR")) {
+        const auto fonts = std::filesystem::path(windows) / "Fonts";
+        const char* candidates[] = {"YuGothM.ttc", "meiryo.ttc", "msgothic.ttc"};
+        for (const char* candidate : candidates) {
+            const auto path = fonts / candidate;
+            if (std::filesystem::exists(path)) return path;
+        }
+    }
+#endif
+    return {};
+}
+
+void rebuildImGuiFonts(ImGuiIO& io, const std::string& preferredPath) {
+    io.Fonts->Clear();
+    const auto preferred = !preferredPath.empty() && std::filesystem::exists(preferredPath)
+        ? std::filesystem::path(preferredPath)
+        : AssetPaths::defaultFont();
+    ImFontConfig primaryConfig;
+    primaryConfig.FontNo = 0;
+    ImFont* primary = nullptr;
+    if (!preferred.empty()) {
+        primary = io.Fonts->AddFontFromFileTTF(
+            preferred.string().c_str(), 18.0f, &primaryConfig,
+            io.Fonts->GetGlyphRangesJapanese());
+    }
+    if (!primary) primary = io.Fonts->AddFontDefault();
+
+    const auto fallback = japaneseFallbackFont();
+    if (!fallback.empty() && fallback != preferred) {
+        ImFontConfig mergeConfig;
+        mergeConfig.MergeMode = true;
+        mergeConfig.FontNo = 0;
+        mergeConfig.DstFont = primary;
+        io.Fonts->AddFontFromFileTTF(
+            fallback.string().c_str(), 18.0f, &mergeConfig,
+            io.Fonts->GetGlyphRangesJapanese());
+    }
+}
+}
+
 int main() {
+#ifdef _WIN32
+    SetConsoleCP(CP_UTF8);
+    SetConsoleOutputCP(CP_UTF8);
+#endif
     if (!glfwInit()) return -1;
     glfwWindowHint(GLFW_SAMPLES, 4);
 
@@ -79,6 +132,8 @@ int main() {
 
     // Initial load
     ConfigLogic::loadSettings(state);
+    std::string loadedImGuiFontPath = state.mediaOverlay.fontPath;
+    rebuildImGuiFonts(io, loadedImGuiFontPath);
     
     // Apply VSync
     glfwSwapInterval(state.enableVsync ? 1 : 0);
@@ -95,6 +150,12 @@ int main() {
         }
 
         glfwPollEvents();
+
+        const std::string requestedImGuiFont = state.mediaOverlay.fontPath;
+        if (requestedImGuiFont != loadedImGuiFontPath) {
+            rebuildImGuiFonts(io, requestedImGuiFont);
+            loadedImGuiFontPath = requestedImGuiFont;
+        }
 
         // Handle F11 fullscreen toggle (edge-triggered)
         bool f11 = (glfwGetKey(window, GLFW_KEY_F11) == GLFW_PRESS);

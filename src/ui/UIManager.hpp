@@ -33,7 +33,10 @@ private:
     void renderParticleSettings(AppState& state, ParticleSystem& particleSystem);
     void renderDebugInfo(AppState& state, SystemStats& systemStats, AudioEngine& audioEngine, GLFWwindow* window);
     void renderGlobalSettings(AppState& state);
+    void renderLyricsEditor(AppState& state, AudioEngine& audioEngine);
     void renderStatusMessage(AppState& state);
+
+    int m_selectedLyric = -1;
 };
 
 #endif // UI_MANAGER_HPP

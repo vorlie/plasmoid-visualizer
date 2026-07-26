@@ -1,7 +1,10 @@
 #include "Texture2D.hpp"
 
 #include "stb_image.h"
+#include <fstream>
 #include <iostream>
+#include <iterator>
+#include <vector>
 
 Texture2D::~Texture2D() {
     reset();
@@ -11,8 +14,15 @@ bool Texture2D::loadRgba(const std::filesystem::path& path, bool flipVertically)
     int width = 0;
     int height = 0;
     int channels = 0;
+    std::ifstream input(path, std::ios::binary);
+    const std::vector<unsigned char> bytes{
+        std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>()};
     stbi_set_flip_vertically_on_load(flipVertically);
-    unsigned char* data = stbi_load(path.string().c_str(), &width, &height, &channels, 4);
+    unsigned char* data = bytes.empty()
+        ? nullptr
+        : stbi_load_from_memory(
+            bytes.data(), static_cast<int>(bytes.size()),
+            &width, &height, &channels, 4);
     if (!data) {
         std::cerr << "Failed to load image: " << path.string() << std::endl;
         return false;

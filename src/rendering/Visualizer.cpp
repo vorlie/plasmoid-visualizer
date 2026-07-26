@@ -1,9 +1,53 @@
 #include "Visualizer.hpp"
 #include "AssetPaths.hpp"
 #include "VisualizerGeometry.hpp"
+#include "Utf8Paths.hpp"
 #include <iostream>
 #include <algorithm>
 #include <cmath>
+
+namespace {
+std::vector<std::uint32_t> decodeUtf8(const std::string& text) {
+    std::vector<std::uint32_t> result;
+    for (size_t i = 0; i < text.size();) {
+        const auto first = static_cast<unsigned char>(text[i]);
+        std::uint32_t codepoint = 0;
+        size_t length = 1;
+        if (first < 0x80) {
+            codepoint = first;
+        } else if ((first & 0xE0) == 0xC0) {
+            codepoint = first & 0x1F;
+            length = 2;
+        } else if ((first & 0xF0) == 0xE0) {
+            codepoint = first & 0x0F;
+            length = 3;
+        } else if ((first & 0xF8) == 0xF0) {
+            codepoint = first & 0x07;
+            length = 4;
+        } else {
+            result.push_back(0xFFFD);
+            ++i;
+            continue;
+        }
+        if (i + length > text.size()) {
+            result.push_back(0xFFFD);
+            break;
+        }
+        bool valid = true;
+        for (size_t j = 1; j < length; ++j) {
+            const auto continuation = static_cast<unsigned char>(text[i + j]);
+            if ((continuation & 0xC0) != 0x80) {
+                valid = false;
+                break;
+            }
+            codepoint = (codepoint << 6) | (continuation & 0x3F);
+        }
+        result.push_back(valid ? codepoint : 0xFFFD);
+        i += valid ? length : 1;
+    }
+    return result;
+}
+}
 
 Visualizer::Visualizer() {
     initShaders();
@@ -12,6 +56,7 @@ Visualizer::Visualizer() {
     const auto defaultFont = AssetPaths::defaultFont();
     if (!defaultFont.empty()) {
         loadFont(defaultFont.string());
+        loadLyricsFont(defaultFont.string());
     }
     glGenVertexArrays(1, &m_vao);
     glGenBuffers(1, &m_vbo);
@@ -124,8 +169,41 @@ void Visualizer::drawTexture(GLuint texture, float opacity) {
     glUseProgram(0);
 }
 
+void Visualizer::drawTextureRegion(
+    GLuint texture,
+    float centerX,
+    float centerY,
+    float halfWidth,
+    float halfHeight,
+    float textureX,
+    float textureY,
+    float textureWidth,
+    float textureHeight,
+    float opacity
+) {
+    if (texture == 0) return;
+    glUseProgram(m_quadShaderProgram);
+    glUniform1i(glGetUniformLocation(m_quadShaderProgram, "uUseTexture"), 1);
+    glUniform1i(glGetUniformLocation(m_quadShaderProgram, "uIsFont"), 0);
+    glUniform4f(glGetUniformLocation(m_quadShaderProgram, "uColor"), 1, 1, 1, opacity);
+    glUniform2f(glGetUniformLocation(m_quadShaderProgram, "uSize"), halfWidth, halfHeight);
+    glUniform2f(glGetUniformLocation(m_quadShaderProgram, "uOffset"), centerX, centerY);
+    glUniform1f(glGetUniformLocation(m_quadShaderProgram, "uRotation"), 0.0f);
+    glUniform1f(glGetUniformLocation(m_quadShaderProgram, "uCornerRadius"), 0.0f);
+    glUniform4f(
+        glGetUniformLocation(m_quadShaderProgram, "uTexRect"),
+        textureX, textureY, textureWidth, textureHeight);
+    glBindVertexArray(m_quadVAO);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, texture);
+    glUniform1i(glGetUniformLocation(m_quadShaderProgram, "uTexture"), 0);
+    glDrawArrays(GL_TRIANGLES, 0, 6);
+    glUniform4f(glGetUniformLocation(m_quadShaderProgram, "uTexRect"), 0, 0, 1, 1);
+    glUseProgram(0);
+}
+
 bool Visualizer::loadBackground(const std::string& path) {
-    return m_backgroundTexture.loadRgba(path, true);
+    return m_backgroundTexture.loadRgba(Utf8Paths::fromUtf8(path), true);
 }
 
 void Visualizer::clearBackground() {
@@ -179,15 +257,44 @@ void Visualizer::drawRoundedRect(float x, float y, float w, float h, float radiu
 }
 
 bool Visualizer::loadFont(const std::string& path) {
-    return m_fontAtlas.load(path, 48.0f);
+    return m_fontAtlas.load(Utf8Paths::fromUtf8(path), 48.0f);
 }
 
-void Visualizer::drawText(const std::string& text, float x, float y, float scale, const float color[4]) {
-    if (!m_fontAtlas.loaded()) return;
+bool Visualizer::loadLyricsFont(const std::string& path) {
+    return m_lyricsFontAtlas.load(Utf8Paths::fromUtf8(path), 48.0f);
+}
+
+float Visualizer::measureTextWidth(
+    const std::string& text,
+    float scale,
+    VisualizerFont font
+) {
+    FontAtlas& atlas = font == VisualizerFont::Lyrics ? m_lyricsFontAtlas : m_fontAtlas;
+    if (!atlas.loaded() || m_viewportWidth <= 0) return 0.0f;
+    float width = 0.0f;
+    for (const std::uint32_t codepoint : decodeUtf8(text)) {
+        if (const GlyphInfo* glyph = atlas.glyph(codepoint)) {
+            width += (2.0f * glyph->advanceX /
+                static_cast<float>(m_viewportWidth)) * scale;
+        }
+    }
+    return width;
+}
+
+void Visualizer::drawText(
+    const std::string& text,
+    float x,
+    float y,
+    float scale,
+    const float color[4],
+    VisualizerFont font
+) {
+    FontAtlas& atlas = font == VisualizerFont::Lyrics ? m_lyricsFontAtlas : m_fontAtlas;
+    if (!atlas.loaded()) return;
 
     glUseProgram(m_quadShaderProgram);
     glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_2D, m_fontAtlas.texture());
+    glBindTexture(GL_TEXTURE_2D, atlas.texture());
     glUniform1i(glGetUniformLocation(m_quadShaderProgram, "uTexture"), 0);
     glUniform1i(glGetUniformLocation(m_quadShaderProgram, "uUseTexture"), 1);
     glUniform4f(glGetUniformLocation(m_quadShaderProgram, "uColor"), color[0], color[1], color[2], color[3]);
@@ -195,36 +302,37 @@ void Visualizer::drawText(const std::string& text, float x, float y, float scale
     glUniform1f(glGetUniformLocation(m_quadShaderProgram, "uRotation"), 0.0f);
 
     float curX = x;
-    float aspect = (float)m_viewportWidth / (float)m_viewportHeight;
-
-    for (char c : text) {
-        if (c < 32 || c >= 128) continue;
-        const GlyphInfo& ch = m_fontAtlas.glyph(static_cast<unsigned char>(c));
+    for (const std::uint32_t codepoint : decodeUtf8(text)) {
+        if (codepoint < 32) continue;
+        const GlyphInfo* glyph = atlas.glyph(codepoint);
+        if (!glyph) continue;
+        const GlyphInfo& ch = *glyph;
 
         float w = (ch.width / (float)m_viewportWidth) * scale;
         float h = (ch.height / (float)m_viewportHeight) * scale;
-        float ox = (ch.bearingLeft / (float)m_viewportWidth) * scale;
-        float oy = (-ch.bearingTop / (float)m_viewportHeight) * scale;
-
-        // Adjust for quad.frag (which uses TexCoord for SDF/Texture mapping)
-        // Actually, for font rendering, we need the frag shader to use the R channel as Alpha.
-        // I should update quad.frag to handle alpha-only textures.
+        const float leftOffset =
+            (2.0f * ch.bearingLeft / static_cast<float>(m_viewportWidth)) * scale;
+        const float topOffset =
+            (-2.0f * ch.bearingTop / static_cast<float>(m_viewportHeight)) * scale;
         
         glUniform2f(glGetUniformLocation(m_quadShaderProgram, "uSize"), w, h);
-        glUniform2f(glGetUniformLocation(m_quadShaderProgram, "uOffset"), curX + ox + w, y - oy - h);
+        glUniform2f(
+            glGetUniformLocation(m_quadShaderProgram, "uOffset"),
+            curX + leftOffset + w,
+            y + topOffset - h);
         
-        // STB bakes top-down, GL is bottom-up. Flip TW.y? 
-        // Let's use uTexRect to flip the mapping: [tx, ty, tw, -th]? No, that might discard.
-        // Better: [tx, ty + th, tw, -th]
-        float tw = ch.width / 1024.0f;
-        float th = ch.height / 1024.0f;
-        glUniform4f(glGetUniformLocation(m_quadShaderProgram, "uTexRect"), ch.textureX, ch.textureY + th, tw, -th);
+        const float atlasSize = static_cast<float>(atlas.atlasSize());
+        float tw = ch.width / atlasSize;
+        float th = ch.height / atlasSize;
+        glUniform4f(
+            glGetUniformLocation(m_quadShaderProgram, "uTexRect"),
+            ch.textureX, ch.textureY, tw, th);
         glUniform1i(glGetUniformLocation(m_quadShaderProgram, "uIsFont"), 1);
 
         glBindVertexArray(m_quadVAO);
         glDrawArrays(GL_TRIANGLES, 0, 6);
 
-        curX += (ch.advanceX / (float)m_viewportWidth) * scale;
+        curX += (2.0f * ch.advanceX / static_cast<float>(m_viewportWidth)) * scale;
     }
 
     glUniform4f(glGetUniformLocation(m_quadShaderProgram, "uTexRect"), 0, 0, 1, 1);

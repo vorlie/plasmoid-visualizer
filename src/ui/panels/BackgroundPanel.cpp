@@ -22,12 +22,6 @@ void UIManager::renderZenKunSettings(AppState& state) {
             ImGui::SameLine(); HelpMarker("Path to image file (JPG/PNG). Stretched to fill screen.");
             
             ImGui::Separator();
-            ImGui::Text("Song Information");
-            ImGui::Checkbox("Draw Info Overlay", &state.showSongInfo);
-            ImGui::InputText("Title", state.songTitle, sizeof(state.songTitle));
-            ImGui::InputText("Artist", state.artistName, sizeof(state.artistName));
-
-            ImGui::Separator();
             ImGui::Text("Beat Effects");
             ImGui::SliderFloat("Beat Sensitivity", &state.beatSensitivity, 1.0f, 2.0f);
             ImGui::SliderFloat("Beat Pulse (Twitch)", &state.bgPulseIntensity, 0.0f, 0.5f);

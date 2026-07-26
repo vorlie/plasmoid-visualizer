@@ -31,6 +31,7 @@ void UIManager::renderUI(
     renderParticleSettings(state, particleSystem);
     renderDebugInfo(state, systemStats, audioEngine, window);
     renderGlobalSettings(state);
+    renderLyricsEditor(state, audioEngine);
     renderStatusMessage(state);
 }
 
@@ -50,6 +51,7 @@ void UIManager::renderMainMenu(AppState& state, AudioEngine& audioEngine) {
             ImGui::MenuItem("Particle Settings", nullptr, &state.showParticleSettings);
             ImGui::MenuItem("Debug Info", nullptr, &state.showDebugInfo);
             ImGui::MenuItem("Global Settings", nullptr, &state.showGlobalSettings);
+            ImGui::MenuItem("Media Overlay", nullptr, &state.showLyricsEditor);
             ImGui::EndMenu();
         }
         ImGui::EndMainMenuBar();

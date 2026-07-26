@@ -1,8 +1,9 @@
 #pragma once
 
 #include <GL/glew.h>
-#include <array>
+#include <cstdint>
 #include <filesystem>
+#include <memory>
 
 struct GlyphInfo {
     float advanceX = 0.0f;
@@ -16,7 +17,7 @@ struct GlyphInfo {
 
 class FontAtlas {
 public:
-    FontAtlas() = default;
+    FontAtlas();
     ~FontAtlas();
 
     FontAtlas(const FontAtlas&) = delete;
@@ -27,11 +28,11 @@ public:
 
     [[nodiscard]] bool loaded() const noexcept { return m_texture != 0; }
     [[nodiscard]] GLuint texture() const noexcept { return m_texture; }
-    [[nodiscard]] const GlyphInfo& glyph(unsigned char character) const noexcept {
-        return m_glyphs[character];
-    }
+    const GlyphInfo* glyph(std::uint32_t codepoint);
+    [[nodiscard]] int atlasSize() const noexcept;
 
 private:
+    struct Impl;
     GLuint m_texture = 0;
-    std::array<GlyphInfo, 128> m_glyphs{};
+    std::unique_ptr<Impl> m_impl;
 };
