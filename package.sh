@@ -1,50 +1,31 @@
-#!/bin/bash
-
-# Exit on error
-set -e
+#!/usr/bin/env bash
+set -euo pipefail
 
 PROJECT_NAME="plasmoid-visualizer"
 VERSION="1.0"
 BUILD_DIR="build_release"
-PLASMA_BUILD_DIR="build_plasma_release"
+STAGE_DIR="dist_linux"
 ASSETS_DIR="release_assets"
 
-echo "Creating release assets for $PROJECT_NAME v$VERSION..."
+echo "Creating release assets for ${PROJECT_NAME} v${VERSION}..."
 
-# 1. Clean and create directories
-rm -rf $BUILD_DIR $PLASMA_BUILD_DIR $ASSETS_DIR
-mkdir -p $ASSETS_DIR
+rm -rf "${BUILD_DIR}" "${STAGE_DIR}" "${ASSETS_DIR}"
+mkdir -p "${ASSETS_DIR}"
 
-# 2. Build Standalone App
-echo "Building standalone application..."
-mkdir -p $BUILD_DIR && cd $BUILD_DIR
-cmake ../ -DCMAKE_BUILD_TYPE=Release
-make -j$(nproc)
-cd ..
+echo "Configuring and building standalone application..."
+cmake -S . -B "${BUILD_DIR}" -DCMAKE_BUILD_TYPE=Release
+cmake --build "${BUILD_DIR}" --parallel
 
-# 3. Build Plasma Plugin
-echo "Building Plasma plugin..."
-mkdir -p $PLASMA_BUILD_DIR && cd $PLASMA_BUILD_DIR
-cmake ../plasma_widget -DCMAKE_BUILD_TYPE=Release
-make -j$(nproc)
-cd ..
+echo "Running unit tests..."
+ctest --test-dir "${BUILD_DIR}" --output-on-failure
 
-# 4. Package Plasma Widget (.plasmoid)
-echo "Packaging Plasma widget..."
-# Copy plugin to the widget directory
-cp $PLASMA_BUILD_DIR/libvisualizerv2plugin.so plasma_widget/contents/ui/
-# Create the .plasmoid file (it's just a zip)
-cd plasma_widget
-zip -r ../$ASSETS_DIR/$PROJECT_NAME.plasmoid . -x "src/*" "CMakeLists.txt" "icon.png"
-zip -u ../$ASSETS_DIR/$PROJECT_NAME.plasmoid icon.png
-cd ..
+echo "Staging binary and runtime assets..."
+cmake --install "${BUILD_DIR}" --prefix "${STAGE_DIR}"
 
-# 5. Package Standalone Binary
-echo "Packaging standalone binary..."
-zip -j $ASSETS_DIR/$PROJECT_NAME-standalone-linux.zip $BUILD_DIR/PlasmoidVisualizer
+echo "Packaging standalone archive..."
+(cd "${STAGE_DIR}" && zip -r "../${ASSETS_DIR}/${PROJECT_NAME}-standalone-linux.zip" .)
 
 echo "------------------------------------------------"
-echo "Done! Assets created in $ASSETS_DIR/:"
-ls -lh $ASSETS_DIR
+echo "Done! Assets created in ${ASSETS_DIR}/:"
+ls -lh "${ASSETS_DIR}"
 echo "------------------------------------------------"
-echo "You can now upload these files to your GitHub/GitLab release."

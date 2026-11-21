@@ -40,20 +40,18 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 [Files]
 ; Main executable
 Source: "dist\{#AppExeName}"; DestDir: "{app}"; Flags: ignoreversion
-; Runtime dependencies
-Source: "dist\glew32.dll"; DestDir: "{app}"; Flags: ignoreversion
+; Optional runtime DLLs (present when built with dynamic libraries)
+Source: "dist\*.dll"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 ; Runtime assets
 Source: "dist\assets\*"; DestDir: "{app}\assets"; Flags: ignoreversion recursesubdirs createallsubdirs
-; Documentation (if exists)
-; Source: "README.md"; DestDir: "{app}"; Flags: ignoreversion isreadme
 
 [Icons]
-Name: "{group}\{#AppName}"; Filename: "{app}\{#AppExeName}"
+Name: "{group}\{#AppName}"; Filename: "{app}\{#AppExeName}"; WorkingDir: "{app}"
 Name: "{group}\{cm:UninstallProgram,{#AppName}}"; Filename: "{uninstallexe}"
-Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExeName}"; Tasks: desktopicon
+Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExeName}"; WorkingDir: "{app}"; Tasks: desktopicon
 
 [Run]
 Filename: "{app}\{#AppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(AppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
 
 [UninstallDelete]
-Type: filesandordirs; Name: "{userappdata}\PlasmoidVisualizer"
+Type: filesandordirs; Name: "{userappdata}\PlasmoidVisualizerStd"
