@@ -67,12 +67,15 @@ if(PLASMOID_USE_FETCHCONTENT)
         set(BUILD_SHARED_LIBS OFF)
         set(CMAKE_POLICY_VERSION_MINIMUM_SAVED "${CMAKE_POLICY_VERSION_MINIMUM}")
         set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
-        FetchContent_Declare(
-            glew
+        set(_PLASMOID_GLEW_FETCH_ARGS
             URL https://github.com/nigels-com/glew/releases/download/glew-2.3.1/glew-2.3.1.tgz
             SOURCE_SUBDIR build/cmake
             DOWNLOAD_EXTRACT_TIMESTAMP TRUE
         )
+        if(CMAKE_VERSION VERSION_GREATER_EQUAL "3.28")
+            list(APPEND _PLASMOID_GLEW_FETCH_ARGS EXCLUDE_FROM_ALL)
+        endif()
+        FetchContent_Declare(glew ${_PLASMOID_GLEW_FETCH_ARGS})
         FetchContent_MakeAvailable(glew)
         set(BUILD_SHARED_LIBS "${BUILD_SHARED_LIBS_SAVED}")
         if(CMAKE_POLICY_VERSION_MINIMUM_SAVED)
