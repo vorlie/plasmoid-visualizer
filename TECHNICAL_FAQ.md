@@ -2,89 +2,67 @@
 
 ## General Architecture
 
-### What technologies are used in the Plasmoid Visualizer?
-The project is built using:
+### What technologies are used in Plasmoid Visualizer?
 - **Language**: C++17
-- **Graphics**: OpenGL 3.3 (Core Profile)
-- **Audio Engine**: `miniaudio` (low-latency capture and playback)
-- **Math/Analysis**: `kissfft` (Fast Fourier Transform), `tinyexpr` (expression parsing), and custom Catmull-Rom splines for smooth curves.
-- **Config**: `toml++`
+- **Graphics**: OpenGL 3.3 Core Profile (GLFW + GLEW)
+- **UI**: Dear ImGui
+- **Audio Engine**: `miniaudio` (file playback, low-latency capture/WASAPI loopback, test tone, and oscilloscope music synthesis)
+- **DSP & Math**: `KissFFT` (8192-point real-to-complex FFT), `tinyexpr` (XY/Z expression evaluation), and Catmull-Rom spline interpolation
+- **Config**: `toml++` (atomic TOML save/load)
 
-### How is CPU usage so low while processing high-res data?
-The engine leverages several optimization strategies:
-- **Zero-Copy Path**: We read raw PCM data via `miniaudio` and stream it directly into Vertex Buffer Objects (VBOs) for rendering.
-- **GPU Workload**: By offloading heavy visual tasks like "Phosphor Bloom" and "Trace Decay" to custom GLSL shaders, the CPU is freed from pixel manipulation, focusing only on audio processing and vertex orchestration.
-- **C++ Performance**: Manual memory management and tight loops ensure minimal overhead compared to interpreted or garbage-collected languages.
+### How does the audio-to-render data path work?
+1. The real-time `miniaudio` audio callback writes stereo + optional Z samples into preallocated, lock-free atomic SPSC ring buffers (`65,536` frames) with zero mutex locks or heap allocations.
+2. Once per render frame, `RenderManager` pulls the latest audio window, caches at most one 8192-point Hanning-windowed FFT per active audio channel (`Mixed`, `Left`, `Right`), and computes delta-time-independent attack/falloff log-binned bar magnitudes.
+3. Focused renderers (`SpectrumRenderer`, `XYTraceRenderer`, `QuadRenderer`, `TextRenderer`) build vertices into reusable scratch buffers and stream them through append-only ring VBOs (`glBufferSubData` with occasional orphaning).
+4. GPU post-processing (phosphor persistence, half-res separable HDR bloom, and Gaussian lyrics-band blur) runs only when enabled by active layers.
 
 ### How does the multi-layered rendering work?
-The visualizer uses a layer-based system. Each layer has its own configuration (gain, falloff, frequency range, shape). Layers are rendered sequentially, allowing for complex stacked visuals (e.g., a waveform over a frequency spectrum).
+Layers are stored in `PersistentConfig::layers` and rendered in stack order. Persistent XY oscilloscope layers draw into the HDR persistence FBO (with optional fast/slow phosphor decay), followed by direct layers (`Bars`, `Lines`, `Dots`, `Waveform`, `Curve`, and triggered `Oscilloscope XY`), optional HDR bloom, and the always-on-top native OpenGL `MediaOverlayLayer`.
 
 ## Audio Analysis
 
-### Why use 192kHz audio for a visualizer?
-In standard audio (44.1kHz), the "sampling resolution" is often too low to draw complex geometric shapes accurately in modes like Oscilloscope XY. At 192kHz, we have over 192,000 coordinate points per second. This allows the beam to render incredibly fine details—such as intricate mathematical "N-Sphere" structures—without lines appearing jagged or aliased.
+### Why use 192 kHz audio for Oscilloscope XY?
+At 44.1 kHz, fast geometric XY shapes have relatively few samples per screen refresh. At 96 kHz or 192 kHz, the beam traces far more coordinate points per frame, producing smooth curves without polygonal corners.
 
-### Why does the visualizer use 32-bit Float if the source is 16-bit?
-Even with 16-bit source files, we "promote" the data to 32-bit floating-point containers. This prevents cumulative "rounding errors" during high-precision math stages like coordinate scaling, rotation, and bloom. This ensures the visual output remains razor-sharp regardless of gain settings.
+### Why process audio as 32-bit float?
+Decoding and conditioning in 32-bit floating-point prevents quantization loss across AC-coupling, biquad bandwidth filtering, gain scaling, and 2D rotation stages.
 
 ### Does it support beat detection?
-Yes. The `AnalysisEngine` monitors energy spikes in specific sub-bands. When the energy exceeds a dynamic threshold (adjustable via "Sensitivity"), a beat is detected, which can trigger visual events like pulsing or particle bursts.
+Yes. `AnalysisEngine::detectBeat` tracks low-frequency (20–150 Hz) energy against a frame-rate-independent exponential moving average and triggers Zen-Kun background pulse and shake effects with a cooldown timer.
 
 ## Visuals & Rendering
 
-### How is the "Analog Oscilloscope" look achieved?
-We simulate CRT behavior using several techniques:
-- **Velocity Modulation**: The brightness of the trace is inversely proportional to its speed, mimicking phosphor excitation.
-- **Circular Beam Head**: Fragment shaders use Signed Distance Fields (SDF) and `smoothstep` to render a soft, circular point at the leading edge.
-- **Persistence (Glow)**: We use multiple rendering passes and alpha blending (often combined with a "Persistence" factor) to keep old trace data visible for a short duration, creating a realistic glow.
+### How is the analog oscilloscope look achieved?
+- **Beam Conditioning**: Per-axis AC/DC coupling, low-pass bandwidth filter, auto-gain, and jump blanking.
+- **Dwell & Z-Modulation**: Velocity-derived brightness plus optional explicit Z-channel modulation (for Oscilloscope Music).
+- **Soft Ribbon Beam**: Miter-clamped screen-space ribbons rendered in two additive passes (soft outer halo + bright core) with a Gaussian falloff fragment shader.
+- **Dual-Decay Phosphor & Bloom**: Fast persistence FBO + optional slow afterglow FBO + 8-pass half-resolution separable HDR bloom.
 
-### How do you handle antialiasing without a high performance hit?
-We combine three strategies:
-1. **Hardware MSAA**: 4x Multisample Anti-Aliasing is requested via GLFW.
-2. **OpenGL Smoothing**: `GL_LINE_SMOOTH` and `GL_POLYGON_SMOOTH` are enabled with `GL_NICEST` hints.
-3. **Sub-pixel Shader AA**: Procedural shapes (Bars, Dots) use `fwidth()` and `smoothstep()` in the fragment shader to produce perfectly smooth edges regardless of resolution.
+### How is antialiasing handled?
+1. **Hardware MSAA**: 4x Multisample Anti-Aliasing requested on the GLFW window.
+2. **Smooth Lines**: `GL_LINE_SMOOTH` with `GL_NICEST` hint and driver-clamped `glLineWidth`.
+3. **Shader AA**: Procedural bars, dots, and XY beams use `fwidth()` and `smoothstep()` in GLSL 330 core shaders for resolution-independent edges.
 
-### What is the "Moving" effect seen in some frames?
-This is typically **Temporal Aliasing**. Since the screen refresh rate (e.g., 144Hz or 180Hz) and the audio sampling signal (192kHz) aren't perfectly synchronized, you occasionally see the "ghost" or "phase shift" of the previous audio frame. This actually enhances the "analog phosphor" look, mimicking the behavior of real physical hardware oscilloscopes.
+## Performance & System Monitoring
 
-## Performance & System
+### How does frame pacing work when VSync is off?
+When VSync is disabled and `Target FPS > 0`, the main loop sleeps (`std::this_thread::sleep_for`, using 1 ms timer resolution on Windows via `timeBeginPeriod(1)`) until ~1.5 ms before the deadline, then yield-spins only the final sub-millisecond window for tight frame pacing at low idle CPU usage.
 
-### Is the CPU/RAM monitoring accurate?
-On Linux, we parse `/proc/self/stat` and `/proc/self/status` for extremely low-overhead, accurate reporting.
-- **Global CPU**: Shows usage relative to the total system capacity (KDE style).
-- **Process CPU**: Shows usage where 100% equals 1 fully saturated core (htop style).
+### How are CPU, RAM, and GPU metrics collected?
+- **Windows**: Win32 `GetProcessTimes`, `GetSystemTimes`, `GetProcessMemoryInfo`, and `GL_RENDERER` (+ `GL_NVX_gpu_memory_info` for dedicated VRAM on NVIDIA GPUs).
+- **Linux**: `/proc/self/stat`, `/proc/stat`, and `/proc/self/status` for CPU and RSS RAM. Dedicated GPU VRAM currently reports `N/A (Linux)`.
 
-### Why does VRAM reporting differ from some tools?
-We query physical dedicated VRAM directly via Linux `sysfs` (`/sys/class/drm/`). This avoids the common mistake of including "Shared System Memory" (GTT), which can make an 8GB card look like it has 16GB in some OpenGL-only tools.
+## Video Export & Troubleshooting
 
-## Troubleshooting
+### How does "Render to Video" work?
+`VideoRenderManager` opens its own dedicated stereo `ma_decoder` (never touching live playback state), pauses the live preview pass while presenting the rendered offline frame in the window, reads pixels asynchronously through double-buffered OpenGL Pixel Buffer Objects (`GL_PIXEL_PACK_BUFFER`), and streams raw RGB24 frames from a background writer thread directly to `ffmpeg` via `CreateProcessW` (Windows) or `posix_spawn` (Linux) with explicit argument vectors (no shell invocation). Audio is stream-copied when container-compatible (e.g., MP3/AAC into MP4, or into MKV) and encoded to 320 kbps AAC when exporting PCM/WAV/FLAC/OGG into MP4.
 
-### Why can't I see any visuals in "Capture" mode?
-Ensure you have selected the correct input device. On Linux, this is often a "Monitor" device (e.g., `Monitor of Internal Audio`) if you want to visualize system output.
+You must have `ffmpeg` installed and available in your system `PATH`.
 
-### How do I render to video?
-The "Render to Video" feature pipes raw frames directly into `ffmpeg`. You must have `ffmpeg` installed in your system PATH for this to function.
+### Why can't I see visuals in "Live Capture" mode?
+Select the appropriate input/loopback device in **Audio Settings** and click **Refresh** if you plugged in a new audio device. On Windows, loopback capture uses WASAPI; on Linux (PipeWire / PulseAudio), select a `Monitor of ...` source to visualize system output.
 
-> [!WARNING]
-> This feature is currently an **unpolished experimental tool**. Because it captures and processes audio frames differently than the real-time engine, you may notice that the resulting video's visualizations are "off" or less reactive compared to the live playback. This is a known limitation of the current frame-stitching implementation.
+## Platform Support
 
-## 🐧 Platform Compatibility & Architecture
-
-### Supported Platforms
-- **Windows 10/11**: Full standalone support.
-    - **Audio**: Uses **WASAPI** Loopback capture (via `miniaudio`) for system audio recording.
-    - **Stats**: Uses Win32 APIs (`GetSystemTimes`, `GlobalMemoryStatusEx`) and OpenGL extensions (`GL_NVX_gpu_memory_info`) for hardware monitoring.
-- **Linux**: Standalone + KDE Plasma Widget.
-    - **Audio**: Uses **PipeWire** or PulseAudio for low-latency capture.
-    - **Stats**: Parses `/proc/stat` and `/proc/self/status` for near-zero overhead telemetry.
-
-### Porting Notes
-The project codebase is now cross-platform:
-- **SystemStats**: Implements a hybrid backend (Win32 for Windows, `/proc` parsing for Linux).
-- **Rendering**: OpenGL 3.3 Core Profile is standard across both platforms.
-- **UI**: Dear ImGui handles platform inputs abstrastion via GLFW.
-
-> [!WARNING]
-> **Linux Support Status**: I've migrated to Windows and currently have **no active Linux testing environment**. While the project is architected to support Linux (and historically did), recent changes are **untested on Linux**. You may encounter compilation errors or bugs that require community fixes.
-
-
+- **Windows 10/11 (x64)**: Primary platform (MSVC / VS 2022+, WASAPI, OpenGL 3.3 Core).
+- **Linux (x86_64)**: Standalone app built and unit-tested in GitHub Actions CI (GCC, OpenGL 3.3 Core, PipeWire/PulseAudio via `miniaudio`).

@@ -1,172 +1,149 @@
-# Plasmoid Visualizer 🎨🔊
+# Plasmoid Visualizer
 
-A high-performance C++ Audio Visualizer suite featuring a powerful standalone OpenGL editor and a native KDE Plasma 6 widget.
+A real-time, multi-layer C++17 / OpenGL 3.3 Core audio visualizer and offline video exporter for Windows and Linux.
 
 [![Watch the Preview](https://img.shields.io/badge/Watch-Preview_Video-red?style=for-the-badge&logo=youtube)](https://youtu.be/zlsPb7s_U0g)
 
+## Highlights
 
+- **Multi-Layer Engine**: Stack independent layers (`Bars`, `Lines`, `Dots`, `Waveform`, `Curve`, and `Oscilloscope XY`) with per-layer frequency range, gain, attack/falloff, smoothing, channel selection, and color.
+- **Analog-Style XY Oscilloscope**: Continuous or triggered acquisition, AC/DC coupling, bandwidth limiting, phosphor fast/slow afterglow, HDR bloom, graticule grid, and live signal measurements.
+- **Media Overlay Layer**: Always-on-top metadata, dual spectra, synchronized LRC lyrics with Timeline & raw LRC editor, Gaussian-blurred lyric band, system font selection, and still image / animated GIF / looped video backgrounds.
+- **Oscilloscope Music Editor**: Write custom `X(t)`, `Y(t)`, `Z(t)` expressions using `tinyexpr`, preview live, and synthesize up to 192 kHz stereo + Z buffers.
+- **Shareable Visual Presets**: Save, load, import, and share self-contained visual presets (`assets/presets/*.toml` + user `<config_dir>/presets/*.toml`) without overwriting machine-local audio device, playlist, font, or video paths.
+- **Offline & Headless CLI Video Export**: Deterministic frame-by-frame capture with dedicated audio decoder, double-buffered PBO readback, background writer thread, live GUI preview, and `--export` headless CLI batch rendering.
+- **Live GLSL Shader Hot-Reload**: Edit `.vert`/`.frag` shaders while the visualizer runs (`F5`, `--watch-shaders`, `--shader-dir`, or `Debug Info`) with safe rollback on compile errors.
+- **Automatic Config Persistence**: Saves settings on clean exit (and on demand via `File > Save Config`) to:
+  - Windows: `%APPDATA%\PlasmoidVisualizerStd\config.toml` (with UI layout in `imgui.ini` alongside it)
+  - Linux: `~/.config/PlasmoidVisualizerStd/config.toml`
 
-## Highlights 🚀
-- **Multi-Layer Engine**: Stack different visualizers (Bars, XY, Particles) with independent frequency analysis.
-- **Media Overlay Layer**: Always-on-top metadata, dual spectra, synchronized LRC lyrics, a Gaussian-blurred lyric band, system-font selection, and still/GIF/looped-video backgrounds. Configure it from the Layer Manager or `View > Media Overlay`.
-- Smooth spline curves with area fill
-- Real-time audio analysis with logarithmic mapping
-- Comprehensive Debug and System Monitoring
-- Technical FAQ for architectural details
+## Documentation
 
-## 🗺️ Documentation
-- **[TECHNICAL_FAQ.md](TECHNICAL_FAQ.md)**: Deep dive into the architecture, optimizations, and visual science of the project.
-- **Config Persistence**: Automatically saves your setup to `~/.config/PlasmoidVisualizerStd/config.toml`.
-  - or `C:\Users\<username>\AppData\Roaming\PlasmoidVisualizerStd\config.toml` on Windows
-- **Oscilloscope Music Editor**: Write custom mathematical expressions `X(t)` and `Y(t)` to generate visuals.
-- **FBO Rendering**: Isolated effect accumulation for professional visuals without UI ghosting.
+- [TECHNICAL_FAQ.md](TECHNICAL_FAQ.md) — Architecture, audio/DSP pipeline, rendering passes, and platform notes.
+- [CONTRIBUTING.md](CONTRIBUTING.md) — Building, testing, warning standards, and commit conventions.
 
-### Project layout
+### Project Layout
 
-- `src/app`: application entry point, state, and runtime asset lookup
-- `src/audio`: audio input, analysis, and oscilloscope music generation
-- `src/config`: configuration serialization and application mapping
-- `src/rendering`: OpenGL resources, visualization geometry, and frame rendering
-- `src/ui`: UI coordination and individual panel implementations
-- `src/export`: offline video rendering
-- `src/platform`: operating-system-specific statistics
-- `assets`: shaders, images, and optional bundled fonts
-- `third_party`: vendored source dependencies
-- `tests`: standalone unit tests
+- `src/app`: application entry point, CLI option parser (`CliOptions`), runtime state (`AppState`), and executable-relative asset lookup (`AssetPaths`)
+- `src/audio`: wait-free SPSC `AudioEngine` (`miniaudio`), FFT/log-binning `AnalysisEngine` (`KissFFT`), and `OscMusicEditor` (`tinyexpr`)
+- `src/config`: `PersistentConfig`, atomic TOML `ConfigManager` + presets (`toml++`), and `ConfigLogic`
+- `src/rendering`: OpenGL RAII handles (`GlResources`), hot-reloadable `ShaderProgram`, `RenderManager`, `Visualizer` facade (`QuadRenderer`, `TextRenderer`, `SpectrumRenderer`, `XYTraceRenderer`), `XYOscilloscopeEngine`, `BloomRenderer`, `GaussianBlurRenderer`, `OverlayPreset`, `LyricsTimeline`, and `AnimatedBackground`
+- `src/export`: asynchronous PBO `VideoRenderManager` and `FfmpegArgs`
+- `src/platform`: safe argument-vector `SubprocessPipe`, `SystemStats`, and `Utf8Paths`
+- `src/ui`: Dear ImGui `UIManager`, `UIHelpers`, and individual panel modules (including `PresetsPanel`)
+- `assets`: GLSL 330 core shaders, built-in visual presets (`assets/presets/*.toml`), and optional bundled fonts
+- `third_party`: vendored source dependencies (`imgui`, `kissfft`, `miniaudio`, `stb`, `tinyexpr`, `toml++`)
+- `tests`: standalone CTest unit test suite
 
 ---
 
-## 1. Windows (Standalone) 🪟
-The standalone editor runs natively on Windows 10/11 using OpenGL 3.3 and WASAPI.
+## 1. Windows Build & Run
 
 ### Prerequisites
-- **Visual Studio 2022 or newer** (tested on VS 2026) with "Desktop development with C++"
-- **CMake 3.20+**
+
+- **Visual Studio 2022** (or newer) with *Desktop development with C++*
+- **CMake 3.16+**
 - **Git**
-- **Dependencies** (Extract to project root):
-  - [GLEW 2.3.1](https://github.com/nigels-com/glew/releases/tag/glew-2.3.1)
-  - [GLFW 3.4 (64-bit Windows Binary)](https://github.com/glfw/glfw/releases/tag/3.4)
-  - [GLM 1.0.3](https://github.com/g-truc/glm/releases/tag/1.0.3)
+- **FFmpeg** in `PATH` *(optional — required for Video Export and Looped Video backgrounds)*
 
-### Build and Run
-```cmd
-:: Clone the repository
-git clone https://github.com/vorlie/plasmoid-visualizer.git
-cd plasmoid-visualizer
+By default, CMake fetches and builds **GLFW 3.4** and **GLEW 2.3.1** (static, matched Debug/Release CRTs) via `FetchContent`, so no manual dependency downloads or runtime DLL setup are required. To build offline using local binary directories instead, pass `-DPLASMOID_USE_FETCHCONTENT=OFF`.
 
-:: Generate Project Files
-cmake -B build
+### Build, Test & Run
 
-:: Build Release Configuration
-cmake --build build --config Release
+```powershell
+# Configure (Visual Studio 2022 x64)
+cmake -B build -G "Visual Studio 17 2022" -A x64
 
-:: Run the application
+# Build Release
+cmake --build build --config Release --parallel
+
+# Run unit tests
+ctest --test-dir build -C Release --output-on-failure
+
+# Run the application (assets are copied beside the executable automatically)
 .\build\Release\PlasmoidVisualizer.exe
 ```
 
+### CLI Reference (Headless Export, Shaders & Benchmarks)
+
+Run `PlasmoidVisualizer --help` for the full list of options.
+
+**Headless batch video export** (runs with a hidden OpenGL context, no GUI, exits `0` on success):
+
+```powershell
+.\build\Release\PlasmoidVisualizer.exe --export song.flac out.mp4 `
+    --preset "Stylized CRT Music" `
+    --lyrics song.lrc --artist "Artist" --title "Track" `
+    --size 1920x1080 --fps 60 --codec x264 --crf 18
+```
+
+*(On displayless Linux servers without X11/Wayland, prefix with `xvfb-run -a`.)*
+
+**Live GLSL shader iteration** (point directly at `assets/shaders` without rebuilding; `F5` forces an immediate reload, `Debug Info` displays status and compiler logs):
+
+```powershell
+.\build\Release\PlasmoidVisualizer.exe --shader-dir .\assets\shaders --watch-shaders
+```
+
+**Built-in visual presets** (`File > Presets...` or `--preset <name_or_path>`):
+- Bundled in `assets/presets/`: *Analog Scope*, *Stylized CRT Music*, *Neon Dual Bars*, *Mirrored Spline Glow*
+- User presets saved to `%APPDATA%\PlasmoidVisualizerStd\presets\` (Windows) or `~/.config/PlasmoidVisualizerStd/presets/` (Linux)
+
+**Benchmark CLI (Optional):**
+
+```powershell
+.\build\Release\PlasmoidVisualizer.exe --benchmark --layers 5 --vsync 0 --fps 60 --seconds 2
+```
+
 ### Installer (Optional)
-Run the build script without arguments for an interactive menu:
+
 ```cmd
 .\build_installer.bat
 ```
 
-It can also be used directly from a terminal:
-
-```cmd
-.\build_installer.bat debug
-.\build_installer.bat build Release
-.\build_installer.bat test Debug
-.\build_installer.bat package Release
-.\build_installer.bat installer
-```
-
-The `installer` option requires **Inno Setup 6**. Use
-`build_installer.bat help` for all available commands. The script uses an
-existing `build-vs17` configuration when present, otherwise it uses `build`.
+Direct commands: `build_installer.bat build Release`, `build_installer.bat test Debug`, `build_installer.bat package Release`, `build_installer.bat installer` (requires **Inno Setup 6**).
 
 ---
 
-## 2. Linux (Standalone) 🐧
-The standalone editor is the core of the project, built for deep customization and real-time tweaks.
+## 2. Linux Build & Run
 
-### Build and Run
+### Prerequisites (Debian / Ubuntu)
+
 ```bash
-# Create build directory
-mkdir -p build && cd build
-
-# Configure and build
-cmake ..
-make -j$(nproc)
-
-# Run the application
-./PlasmoidVisualizer
+sudo apt-get update
+sudo apt-get install -y build-essential cmake libgl1-mesa-dev libglfw3-dev libglew-dev \
+    libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev
+# Optional (for video export & looped video backgrounds):
+sudo apt-get install -y ffmpeg
 ```
 
----
+*(If system `glfw3`/`GLEW` development packages are unavailable, CMake falls back to `FetchContent` automatically.)*
 
-## 3. KDE Plasma 6 Widget 🐧
-The native widget brings high-performance visualization directly to your desktop or panel.
+### Build, Test & Run
 
-### Installation
 ```bash
-# Build the plugin
-mkdir -p build_plasma && cd build_plasma
-cmake ../plasma_widget
-make -j$(nproc)
-cp libvisualizerv2plugin.so ../plasma_widget/contents/ui/
-
-# Install the widget
-cd ..
-kpackagetool6 --type Plasma/Applet --install plasma_widget
+cmake -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build --parallel
+ctest --test-dir build --output-on-failure
+./build/PlasmoidVisualizer
 ```
 
 ---
 
-## Features ✨
+## Pro Tips: Oscilloscope XY Mode
 
-### 🎭 Visual Synthesis
-- **Layer Manager**: Add unlimited visualization layers. Mixing different shapes creates unique visuals.
-- **Advanced Shapes**: Bars, Lines, Dots, Waveform, and **Oscilloscope XY**.
-- **Particle System**: Reactive physics with beat detection and customizable energy.
+- **Sample Rate**: 96 kHz or 192 kHz files yield significantly smoother XY curves than 44.1 kHz.
+- **Lossless Audio**: Prefer FLAC or WAV over low-bitrate lossy formats, whose compression artifacts appear as trace fuzz.
+- **Stereo Separation**: XY mode plots Left (X) against Right (Y); pure mono audio draws a diagonal line.
 
-### 📺 Oscilloscope XY Mode
-- **Analog Aesthetics**: True-to-life trace persistence and CRT glow.
-- **Grid System**: 10x10 graticule grid that follows the trace aspect ratio perfectly.
-- **Transformations**: Real-time rotation, flipping, and scaling.
+## Credits & Licenses
 
----
+- [toml++](https://marzer.github.io/tomlplusplus/)
+- [miniaudio](https://github.com/mackron/miniaudio)
+- [KissFFT](https://github.com/mborgerding/kissfft)
+- [tinyexpr](https://github.com/codeplea/tinyexpr)
+- [Dear ImGui](https://github.com/ocornut/imgui)
+- [stb](https://github.com/nothings/stb)
+- [GLFW](https://www.glfw.org/) / [GLEW](http://glew.sourceforge.net/)
 
-## 🎨 Pro Tips: Oscilloscope Mastery
-
-To get the most stunning, laser-sharp visuals from the Oscilloscope XY mode, follow these best practices:
-
-- **Sample Rate is King**: Use **96kHz or 192kHz** audio files when possible. Higher sample rates provide more points per frame, resulting in silky-smooth curves instead of jagged lines.
-- **Lossless Only**: Avoid low-bitrate MP3s. Compression artifacts often appear as "fuzz" or "noise" on the oscilloscope trace. For the cleanest visuals, stick to **FLAC or WAV**.
-- **Phase is Everything**: Oscilloscope XY mode relies on the difference between the Left and Right channels. Pure mono audio will only appear as a diagonal line. Experiment with **stereo imaging effects** and **chorus** to add depth and volume to your patterns.
-- **The 1:1 Rule**: Our visualizer automatically enforces a square aspect ratio. Use the **Rotation** and **Trace Thickness** controls to fine-tune the "phosphor" look for your specific screen resolution.
-
----
-
-### 📂 Management & Persistence
-- **Playlist & Scanning**: Specify a music folder and browse your library instantly.
-- **XDG Standards**: Configuration is stored properly in standard Linux user directories.
-- **Video Export**: Export your music as high-quality MP4 using FFMPEG integration.
-
----
-
-## Credits & Licenses 💎
-
-This project is built upon excellence:
-- **[toml++](https://marzer.github.io/tomlplusplus/)**: Modern TOML parsing for C++.
-- **[miniaudio](https://github.com/mackron/miniaudio)**: Audio engine with low-latency capture.
-- **[KissFFT](https://github.com/mborgerding/kissfft)**: Spectral analysis engine.
-- **[Dear ImGui](https://github.com/ocornut/imgui)**: Immediate-node UI for the editor.
-- **[GLFW](https://www.glfw.org/)** / **[GLEW](http://glew.sourceforge.net/)**: OpenGL context and extensions.
-
----
-
-## License
-Licensed under the **MIT [License](LICENSE)**.
-
----
-Made with ❤️ for the Linux Audio community. Enjoy!
+Licensed under the [MIT License](LICENSE).

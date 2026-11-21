@@ -1,6 +1,8 @@
 # Fonts
 
-Place bundled application fonts in this directory. If
-`AdwaitaMono-Regular.ttf` is present, the visualizer uses it for its overlay.
-Otherwise it falls back to Consolas on Windows and common system monospace
-fonts on Linux.
+Place optional bundled application fonts in this directory.
+
+- If `AdwaitaMono-Regular.ttf` is present here, the visualizer uses it as the default overlay and UI font.
+- Otherwise, `AssetPaths::defaultFont()` falls back to:
+  - **Windows**: `YuGothM.ttc`, `meiryo.ttc`, `msgothic.ttc`, then `consola.ttf` in `%WINDIR%\Fonts`
+  - **Linux**: `/usr/share/fonts/Adwaita/AdwaitaMono-Regular.ttf`, then `/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf`
