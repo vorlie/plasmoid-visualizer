@@ -1,67 +1,52 @@
 #include "UIManager.hpp"
 #include "UIHelpers.hpp"
 #include "ConfigLogic.hpp"
-#include "RenderManager.hpp"
-#include "imgui_impl_glfw.h"
-#include "imgui_impl_opengl3.h"
-#include <GLFW/glfw3.h>
-#include <iostream>
-#include <cstring>
-#include <vector>
-#include <filesystem>
-#include "VideoRenderManager.hpp"
 #include "Utf8Paths.hpp"
+
+#include <filesystem>
+#include <string>
 
 namespace fs = std::filesystem;
 
 void UIManager::renderPlaylist(AppState& state, AudioEngine& audioEngine) {
-    if (state.showPlaylist) {
-        ImGui::Begin("Playlist", &state.showPlaylist);
-        if (ImGui::InputText("Music Folder", state.musicFolderPath, sizeof(state.musicFolderPath))) ConfigLogic::scanMusicFolder(state, state.musicFolderPath);
+    if (state.ui.showPlaylist) {
+        ImGui::Begin("Playlist", &state.ui.showPlaylist);
+        if (UIHelpers::InputText("Music Folder", state.config.musicFolderPath)) {
+            ConfigLogic::scanMusicFolder(state, state.config.musicFolderPath);
+        }
         ImGui::SameLine();
-        if (ImGui::Button("Refresh")) ConfigLogic::scanMusicFolder(state, state.musicFolderPath);
+        if (ImGui::Button("Refresh")) {
+            ConfigLogic::scanMusicFolder(state, state.config.musicFolderPath);
+        }
+        if (ImGui::Checkbox("Loop Current Track", &state.config.loopTrack)) {
+            audioEngine.setLoopTrack(state.config.loopTrack);
+        }
+        ImGui::SameLine();
+        HelpMarker("Uncheck to automatically play the next track in this list when a track finishes.");
 
         ImGui::Separator();
         if (ImGui::BeginChild("FileList")) {
-            for (const auto& file : state.musicFiles) {
-                bool isSelected = (std::string(state.filePath).find(file) != std::string::npos);
+            const std::string currentFilename = Utf8Paths::toUtf8(Utf8Paths::fromUtf8(state.fx.filePath).filename());
+            for (const auto& file : state.fx.musicFiles) {
+                const bool isSelected = !currentFilename.empty() && currentFilename == file;
                 if (ImGui::Selectable(file.c_str(), isSelected)) {
                     const fs::path fullPath =
-                        Utf8Paths::fromUtf8(state.musicFolderPath) /
+                        Utf8Paths::fromUtf8(state.config.musicFolderPath) /
                         Utf8Paths::fromUtf8(file);
-                    const std::string fullPathUtf8 = Utf8Paths::toUtf8(fullPath);
-                    strncpy(state.filePath, fullPathUtf8.c_str(), sizeof(state.filePath) - 1);
-                    state.filePath[sizeof(state.filePath) - 1] = '\0';
-                    if (audioEngine.loadFile(state.filePath)) {
-                        state.currentAudioMode = AudioMode::File;
+                    state.fx.filePath = Utf8Paths::toUtf8(fullPath);
+                    if (audioEngine.loadFile(state.fx.filePath)) {
+                        state.config.currentAudioMode = AudioMode::File;
                         audioEngine.play();
-                        state.statusMessage = "Playing: " + file;
-                        state.statusColor = ImVec4(0, 1, 0, 1);
+                        state.ui.statusMessage = "Playing: " + file;
+                        state.ui.statusColor = ImVec4(0, 1, 0, 1);
                     } else {
-                        state.statusMessage = "Failed to load: " + file;
-                        state.statusColor = ImVec4(1, 0, 0, 1);
+                        state.ui.statusMessage = "Failed to load: " + file;
+                        state.ui.statusColor = ImVec4(1, 0, 0, 1);
                     }
                 }
             }
         }
-        ImGui::EndChild(); ImGui::End();
-    }
-}
-
-void UIManager::renderParticleSettings(AppState& state, ParticleSystem& particleSystem) {
-    if (state.showParticleSettings) {
-        ImGui::Begin("Particle Settings", &state.showParticleSettings);
-        ImGui::Checkbox("Enable Particles", &state.particlesEnabled);
-        if (state.particlesEnabled) {
-            ImGui::Separator(); ImGui::Text("Beat Detection");
-            ImGui::SliderFloat("Sensitivity", &state.beatSensitivity, 1.0f, 2.0f);
-            ImGui::Separator(); ImGui::Text("Particle Physics");
-            ImGui::SliderInt("Max Count", &state.particleCount, 100, 2000);
-            ImGui::SliderFloat("Speed/Energy", &state.particleSpeed, 0.1f, 5.0f);
-            ImGui::SliderFloat("Size", &state.particleSize, 1.0f, 20.0f);
-            ImGui::ColorEdit4("Color", state.particleColor);
-        }
+        ImGui::EndChild();
         ImGui::End();
     }
 }
-

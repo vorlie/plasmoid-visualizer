@@ -1,62 +1,11 @@
 #ifndef APP_STATE_HPP
 #define APP_STATE_HPP
 
-#include <vector>
-#include <string>
-#include "AnalysisEngine.hpp"
-#include "VisualizerTypes.hpp"
-#include "XYOscilloscopeTypes.hpp"
-#include "OverlayPreset.hpp"
+#include "PersistentConfig.hpp"
 #include "imgui.h"
 
-enum class AudioMode {
-    File = 0,
-    Capture = 1,
-    TestTone = 2,
-    OscMusic = 3
-};
-
-struct VisualizerLayer {
-    LayerId id = 0;
-    std::string name;
-    LayerConfig config;
-    float color[4] = { 0.0f, 0.8f, 1.0f, 1.0f };
-    float barHeight = 0.2f;
-    bool mirrored = false;
-    VisualizerShape shape = VisualizerShape::Bars;
-    float cornerRadius = 0.0f;
-    std::vector<float> prevMagnitudes;
-    bool visible = true;
-    float timeScale = 1.0f;
-    float rotation = 0.0f;
-    bool flipX = false;
-    bool flipY = false;
-    float bloom = 1.0f;
-    bool showGrid = true;
-    float traceWidth = 2.0f;
-    float fillOpacity = 0.0f;
-    float beamHeadSize = 0.0f;
-    float velocityModulation = 0.0f;
-    bool xyAutoGain = false;
-    float xOffset = 0.0f;
-    float yOffset = 0.0f;
-    float xScale = 1.0f;
-    float yScale = 1.0f;
-    bool useLayerPersistence = true;
-    AudioChannel channel = AudioChannel::Mixed;
-    BarAnchor barAnchor = BarAnchor::Bottom;
-    XYLayerSettings xy;
-    XYMeasurements xyMeasurements;
-};
-
-struct VideoRenderSettings {
-    int width = 1920;
-    int height = 1080;
-    int fps = 60;
-    int codecIdx = 0; // 0=libx264, 1=h264_nvenc, 2=h264_vaapi, 3=h264_amf
-    int crf = 16;
-    char outputPath[256] = "output.mp4";
-};
+#include <string>
+#include <vector>
 
 struct VideoRenderStatus {
     bool isRendering = false;
@@ -66,54 +15,12 @@ struct VideoRenderStatus {
     std::string errorMessage;
 };
 
-struct AppState {
-    AppState();
-
-    LayerId nextLayerId = 1;
-    // Visualizer layers
-    std::vector<VisualizerLayer> layers;
-    
-    // Music playlist
+struct RuntimeFxState {
+    // Active file & scanned playlist
+    std::string filePath;
     std::vector<std::string> musicFiles;
-    char musicFolderPath[512] = "";
-    char filePath[512] = "";
-    
-    // Particle system settings
-    bool particlesEnabled = false;
-    float beatSensitivity = 1.3f;
-    int particleCount = 500;
-    float particleSpeed = 1.0f;
-    float particleSize = 5.0f;
-    float particleColor[4] = { 0.0f, 1.0f, 1.0f, 1.0f };
-    
-    // Persistence settings
-    float phosphorDecay = 0.1f;
-    OscilloscopeDisplaySettings oscilloscopeDisplay;
-    
-    // Audio Processing
-    float globalGain = 1.0f;
 
-    // Display Settings
-    bool enableVsync = true;
-    int targetFps = 60;
-
-    // Zen-Kun Mode & Background Support
-    bool zenKunModeEnabled = false;
-    char backgroundImagePath[512] = "";
-    float bgPulseIntensity = 0.05f;
-    float shakeIntensity = 0.02f;
-    float shakeTiltIntensity = 0.05f;
-    float shakeZoomIntensity = 0.02f;
-    
-    // Song Metadata
-    char songTitle[256] = "Song Title";
-    char artistName[256] = "Artist Name";
-    bool showSongInfo = true;
-
-    // Dedicated background/metadata/spectrum/lyrics rendering layer.
-    MediaOverlayLayer mediaOverlay;
-    
-    // Dynamic effects state (updated every frame)
+    // Dynamic beat effects state (updated every frame)
     float currentBgScale = 1.0f;
     float currentShakeX = 0.0f;
     float currentShakeY = 0.0f;
@@ -121,45 +28,80 @@ struct AppState {
     float currentShakeZoom = 0.0f;
     float bgPulseEnergy = 0.0f;
     float shakeEnergy = 0.0f;
-    
-    // Audio mode
-    AudioMode currentAudioMode = AudioMode::File;
-    char selectedCaptureDeviceName[256] = "";
-    bool useSpecificCaptureDevice = false;
-    
-    // UI state flags
+
+    // Active video export status
+    VideoRenderStatus videoStatus;
+};
+
+struct UiState {
+    // Panel visibility flags
     bool showLayerEditor = false;
     bool showPlaylist = false;
-    bool showAudioManager = false;
-    bool showOscMusicEditor = false;
-    bool showSettings = false;
-    bool showSystemStats = false;
     bool showLayerManager = true;
     bool showDebugInfo = false;
-    bool showParticleSettings = false;
     bool showGlobalSettings = true;
     bool showAudioSettings = true;
     bool showZenKunSettings = false;
     bool showLyricsEditor = false;
+    bool showPresetsPanel = false;
+    bool showRenderDialog = false;
 
+    // Presets panel inputs
+    std::string presetSaveName = "My Preset";
+    std::string presetFilePath;
+
+    // Selection state
     int selectedLayerIdx = 0;
+    int selectedLyricIdx = -1;
 
-    // Video Rendering
-    VideoRenderSettings videoSettings;
-    VideoRenderStatus videoStatus;
-
-
-
-    // Status message
+    // Status notification
     std::string statusMessage;
     ImVec4 statusColor = ImVec4(1, 1, 1, 1);
 
+    // Test tone panel controls
+    float testToneFreq = 440.0f;
+    float testToneFreqRight = 440.0f;
+    bool testToneStereo = false;
+    float testToneVol = 0.5f;
+    int testToneType = 0;
+
+    // Oscilloscope music editor panel controls
+    std::string oscXExpr;
+    std::string oscYExpr;
+    std::string oscZExpr;
+    float oscDuration = 2.0f;
+    float oscBaseFreq = 440.0f;
+    bool oscEditorSynced = false;
+    std::vector<float> oscPreviewPoints;
+    bool oscPreviewDirty = true;
+
+    // Live GLSL shader hot-reload controls & status
+#ifndef NDEBUG
+    bool shaderHotReloadEnabled = true;
+#else
+    bool shaderHotReloadEnabled = false;
+#endif
+    bool requestShaderReload = false;
+    int shaderReloadCount = 0;
+    bool shaderReloadError = false;
+    std::string shaderReloadStatus;
+};
+
+struct AppState {
+    AppState();
+
+    PersistentConfig config;
+    RuntimeFxState fx;
+    UiState ui;
+
     VisualizerLayer* getSelectedLayer() {
-        if (selectedLayerIdx >= 0 && selectedLayerIdx < (int)layers.size()) return &layers[selectedLayerIdx];
+        if (ui.selectedLayerIdx >= 0 && ui.selectedLayerIdx < static_cast<int>(config.layers.size())) {
+            return &config.layers[ui.selectedLayerIdx];
+        }
         return nullptr;
     }
 
-    LayerId allocateLayerId() { return nextLayerId++; }
+    LayerId allocateLayerId() { return config.allocateLayerId(); }
 };
 
 #endif // APP_STATE_HPP

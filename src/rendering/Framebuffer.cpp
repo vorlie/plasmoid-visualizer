@@ -2,22 +2,19 @@
 
 #include <iostream>
 
-Framebuffer::~Framebuffer() {
-    reset();
-}
-
 void Framebuffer::resize(int width, int height) {
+    if (width <= 0 || height <= 0) return;
     if (m_width == width && m_height == height && ready()) return;
 
     reset();
     m_width = width;
     m_height = height;
 
-    glGenFramebuffers(1, &m_id);
-    glBindFramebuffer(GL_FRAMEBUFFER, m_id);
+    m_id = gl::FramebufferHandle::create();
+    glBindFramebuffer(GL_FRAMEBUFFER, m_id.get());
 
-    glGenTextures(1, &m_texture);
-    glBindTexture(GL_TEXTURE_2D, m_texture);
+    m_texture = gl::Texture::create();
+    glBindTexture(GL_TEXTURE_2D, m_texture.get());
     glTexImage2D(
         GL_TEXTURE_2D, 0, GL_RGBA16F, width, height, 0,
         GL_RGBA, GL_HALF_FLOAT, nullptr);
@@ -26,10 +23,15 @@ void Framebuffer::resize(int width, int height) {
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
     glFramebufferTexture2D(
-        GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, m_texture, 0);
+        GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, m_texture.get(), 0);
 
-    if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
-        std::cerr << "Framebuffer is not complete" << std::endl;
+    const GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+    if (status != GL_FRAMEBUFFER_COMPLETE) {
+        std::cerr << "Framebuffer is not complete (status=0x"
+                  << std::hex << status << std::dec << ")" << std::endl;
+        unbind();
+        reset();
+        return;
     }
 
     glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
@@ -38,7 +40,7 @@ void Framebuffer::resize(int width, int height) {
 }
 
 void Framebuffer::bind() const {
-    glBindFramebuffer(GL_FRAMEBUFFER, m_id);
+    glBindFramebuffer(GL_FRAMEBUFFER, m_id.get());
 }
 
 void Framebuffer::unbind() {
@@ -46,10 +48,8 @@ void Framebuffer::unbind() {
 }
 
 void Framebuffer::reset() noexcept {
-    if (m_id != 0) glDeleteFramebuffers(1, &m_id);
-    if (m_texture != 0) glDeleteTextures(1, &m_texture);
-    m_id = 0;
-    m_texture = 0;
+    m_id.reset();
+    m_texture.reset();
     m_width = 0;
     m_height = 0;
 }

@@ -4,17 +4,8 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
-#include <regex>
-#include <sstream>
 
 namespace {
-std::string trim(std::string value) {
-    const auto first = value.find_first_not_of(" \t\r\n");
-    if (first == std::string::npos) return {};
-    const auto last = value.find_last_not_of(" \t\r\n");
-    return value.substr(first, last - first + 1);
-}
-
 void drawCentered(
     Visualizer& visualizer,
     const std::string& text,
@@ -27,81 +18,7 @@ void drawCentered(
         text, centerX - visualizer.measureTextWidth(text, scale, font) * 0.5f,
         y, scale, color, font);
 }
-}
-
-void LyricsTimeline::sortAndNormalize() {
-    events.erase(
-        std::remove_if(events.begin(), events.end(), [](const LyricEvent& event) {
-            return event.text.empty();
-        }),
-        events.end());
-    std::stable_sort(events.begin(), events.end(), [](const LyricEvent& a, const LyricEvent& b) {
-        return a.startSeconds < b.startSeconds;
-    });
-    for (size_t i = 0; i < events.size(); ++i) {
-        const float nextStart = i + 1 < events.size()
-            ? events[i + 1].startSeconds
-            : events[i].startSeconds + 5.0f;
-        if (events[i].endSeconds <= events[i].startSeconds) {
-            events[i].endSeconds = nextStart;
-        }
-        events[i].endSeconds = std::max(events[i].endSeconds, events[i].startSeconds + 0.05f);
-    }
-}
-
-const LyricEvent* LyricsTimeline::activeEvent(float timeSeconds) const {
-    const LyricEvent* result = nullptr;
-    for (const auto& event : events) {
-        if (event.startSeconds > timeSeconds) break;
-        if (timeSeconds < event.endSeconds) result = &event;
-    }
-    return result;
-}
-
-bool LyricsTimeline::parseLrc(const std::string& source, std::string* error) {
-    static const std::regex timeTag(R"(\[(\d{1,3}):(\d{2})(?:[.:](\d{1,3}))?\])");
-    std::vector<LyricEvent> parsed;
-    std::istringstream lines(source);
-    std::string line;
-    int lineNumber = 0;
-
-    while (std::getline(lines, line)) {
-        ++lineNumber;
-        std::sregex_iterator match(line.begin(), line.end(), timeTag);
-        const std::sregex_iterator end;
-        if (match == end) {
-            if (!trim(line).empty() && error) {
-                *error = "Line " + std::to_string(lineNumber) + " has no [mm:ss.xx] timestamp.";
-            }
-            continue;
-        }
-
-        size_t textStart = 0;
-        for (auto cursor = match; cursor != end; ++cursor) {
-            textStart = static_cast<size_t>(cursor->position() + cursor->length());
-        }
-        const std::string lyric = trim(line.substr(textStart));
-        for (; match != end; ++match) {
-            const float minutes = std::stof((*match)[1].str());
-            const float seconds = std::stof((*match)[2].str());
-            float fraction = 0.0f;
-            if ((*match)[3].matched) {
-                const std::string digits = (*match)[3].str();
-                fraction = std::stof(digits) / std::pow(10.0f, static_cast<float>(digits.size()));
-            }
-            parsed.push_back({minutes * 60.0f + seconds + fraction, 0.0f, lyric});
-        }
-    }
-
-    if (parsed.empty()) {
-        if (error) *error = "No timestamped lyric lines were found.";
-        return false;
-    }
-    events = std::move(parsed);
-    sortAndNormalize();
-    if (error) error->clear();
-    return true;
-}
+} // namespace
 
 void OverlayPresetRenderer::renderSpectrum(
     Visualizer& visualizer,
@@ -119,29 +36,49 @@ void OverlayPresetRenderer::renderSpectrum(
     constexpr float left = -0.94f;
     constexpr float right = 0.94f;
     const float cell = (right - left) / static_cast<float>(barCount);
+    const float halfLineThickness = std::clamp(lineThickness, 0.0005f, 0.02f);
 
-    visualizer.drawRoundedRect(
-        0.0f, baselineY, 0.94f,
-        std::clamp(lineThickness, 0.0005f, 0.02f), 0.0f, color);
-    if (fft.empty()) return;
-
-    for (int i = 0; i < barCount; ++i) {
-        const size_t begin = static_cast<size_t>(i) * fft.size() / barCount;
-        const size_t finish = std::max(begin + 1, static_cast<size_t>(i + 1) * fft.size() / barCount);
-        float magnitude = 0.0f;
-        for (size_t j = begin; j < std::min(finish, fft.size()); ++j) {
-            magnitude = std::max(magnitude, fft[j]);
-        }
-        const float amplitudeCap = std::clamp(requestedAmplitudeCap, 0.05f, 8.0f);
-        const float height =
-            std::clamp(magnitude * gain, 0.0f, amplitudeCap) * maxHeight;
-        if (height < 0.002f) continue;
-        const float x = left + (static_cast<float>(i) + 0.5f) * cell;
-        const float y = baselineY + direction * height;
-        visualizer.drawRoundedRect(
-            x, y, cell * 0.5f * std::clamp(requestedBarWidth, 0.05f, 1.0f),
-            height, 0.0f, color);
+    m_spectrumVertices.clear();
+    const size_t maxFloats = static_cast<size_t>(barCount + 1) * 30;
+    if (m_spectrumVertices.capacity() < maxFloats) {
+        m_spectrumVertices.reserve(maxFloats);
     }
+
+    auto appendRect = [&](float cx, float cy, float hw, float hh) {
+        const float x0 = cx - hw;
+        const float x1 = cx + hw;
+        const float y0 = cy - hh;
+        const float y1 = cy + hh;
+        m_spectrumVertices.push_back(x0); m_spectrumVertices.push_back(y1); m_spectrumVertices.push_back(0.0f); m_spectrumVertices.push_back(0.0f); m_spectrumVertices.push_back(1.0f);
+        m_spectrumVertices.push_back(x0); m_spectrumVertices.push_back(y0); m_spectrumVertices.push_back(0.0f); m_spectrumVertices.push_back(0.0f); m_spectrumVertices.push_back(1.0f);
+        m_spectrumVertices.push_back(x1); m_spectrumVertices.push_back(y0); m_spectrumVertices.push_back(0.0f); m_spectrumVertices.push_back(0.0f); m_spectrumVertices.push_back(1.0f);
+
+        m_spectrumVertices.push_back(x0); m_spectrumVertices.push_back(y1); m_spectrumVertices.push_back(0.0f); m_spectrumVertices.push_back(0.0f); m_spectrumVertices.push_back(1.0f);
+        m_spectrumVertices.push_back(x1); m_spectrumVertices.push_back(y0); m_spectrumVertices.push_back(0.0f); m_spectrumVertices.push_back(0.0f); m_spectrumVertices.push_back(1.0f);
+        m_spectrumVertices.push_back(x1); m_spectrumVertices.push_back(y1); m_spectrumVertices.push_back(0.0f); m_spectrumVertices.push_back(0.0f); m_spectrumVertices.push_back(1.0f);
+    };
+
+    appendRect(0.0f, baselineY, 0.94f, halfLineThickness);
+    if (!fft.empty()) {
+        const float amplitudeCap = std::clamp(requestedAmplitudeCap, 0.05f, 8.0f);
+        const float halfBarWidth = cell * 0.5f * std::clamp(requestedBarWidth, 0.05f, 1.0f);
+        for (int i = 0; i < barCount; ++i) {
+            const size_t begin = static_cast<size_t>(i) * fft.size() / barCount;
+            const size_t finish = std::max(begin + 1, static_cast<size_t>(i + 1) * fft.size() / barCount);
+            float magnitude = 0.0f;
+            for (size_t j = begin; j < std::min(finish, fft.size()); ++j) {
+                magnitude = std::max(magnitude, fft[j]);
+            }
+            const float height =
+                std::clamp(magnitude * gain, 0.0f, amplitudeCap) * maxHeight;
+            if (height < 0.002f) continue;
+            const float x = left + (static_cast<float>(i) + 0.5f) * cell;
+            const float y = baselineY + direction * height;
+            appendRect(x, y, halfBarWidth, height);
+        }
+    }
+
+    visualizer.drawSolidRects(m_spectrumVertices, color);
 }
 
 void OverlayPresetRenderer::render(

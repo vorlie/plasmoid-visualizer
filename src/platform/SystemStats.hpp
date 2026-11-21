@@ -16,7 +16,7 @@ class SystemStats {
 public:
     SystemStats();
     void update(double dt);
-    
+
     float getProcessCpuUsage() const { return m_processCpuUsage; }
     float getGlobalCpuUsage() const { return m_globalCpuUsage; }
     float getRamUsageMB() const { return m_ramUsageMB; }
@@ -25,19 +25,20 @@ public:
     float getGpuVramUsedMB() const { return m_gpuVramUsedMB; }
     float getGpuVramTotalMB() const { return m_gpuVramTotalMB; }
     int getCpuCoreCount() const { return m_cpuCoreCount; }
-    
+
     // Frame time statistics
     float getFrameTimeMs() const { return m_frameTimeMs; }
     float getMinFrameTimeMs() const { return m_minFrameTimeMs; }
     float getMaxFrameTimeMs() const { return m_maxFrameTimeMs; }
     float getAvgFrameTimeMs() const { return m_avgFrameTimeMs; }
-    
+
     void recordFrameTime(float deltaTime);
 
 private:
     void updateRam();
     void updateCpu();
-    
+    void updateGpu();
+
     float m_processCpuUsage = 0.0f;
     float m_globalCpuUsage = 0.0f;
     float m_ramUsageMB = 0.0f;
@@ -45,8 +46,12 @@ private:
     std::string m_gpuInfo = "N/A";
     float m_gpuVramUsedMB = 0.0f;
     float m_gpuVramTotalMB = 0.0f;
-    int m_cpuCoreCount = 0;
-    
+    int m_cpuCoreCount = 1;
+
+    // Cached GPU capability discovery (deferred until GL context is queried in update())
+    bool m_gpuInitialized = false;
+    bool m_hasNvMemInfo = false;
+
     // Frame time tracking
     float m_frameTimeMs = 0.0f;
     float m_minFrameTimeMs = 999.0f;
@@ -54,7 +59,7 @@ private:
     float m_avgFrameTimeMs = 0.0f;
     std::vector<float> m_frameTimeSamples;
     double m_frameTimeAccum = 0.0;
-    
+
     // CPU calculation state
 #ifdef _WIN32
     typedef FILETIME TicksType;
@@ -64,10 +69,5 @@ private:
 
     TicksType m_lastProcessTicks = {};
     TicksType m_lastTotalTicks = {};
-#ifdef _WIN32
-    TicksType m_lastIdleTicks = {};
-    TicksType m_lastKernelTicks = {};
-    TicksType m_lastUserTicks = {};
-#endif
     double m_updateTimer = 0.0;
 };

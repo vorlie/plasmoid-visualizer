@@ -12,26 +12,34 @@ float VisualizerGeometry::catmullRom(float p0, float p1, float p2, float p3, flo
     );
 }
 
-std::vector<float> VisualizerGeometry::buildTraceRibbon(
+void VisualizerGeometry::buildTraceRibbon(
     const std::vector<float>& centerline,
     float widthPixels,
     int viewportWidth,
-    int viewportHeight
+    int viewportHeight,
+    std::vector<float>& ribbon
 ) {
+    ribbon.clear();
     const size_t pointCount = centerline.size() / 5;
-    std::vector<float> ribbon;
-    if (pointCount < 2 || viewportWidth <= 0 || viewportHeight <= 0) return ribbon;
-    ribbon.reserve(pointCount * 10);
+    if (pointCount < 2 || viewportWidth <= 0 || viewportHeight <= 0) return;
+    if (ribbon.capacity() < pointCount * 10) {
+        ribbon.reserve(pointCount * 10);
+    }
 
     const float halfWidth = std::max(widthPixels, 1.0f) * 0.5f;
+    const float halfVpW = static_cast<float>(viewportWidth) * 0.5f;
+    const float halfVpH = static_cast<float>(viewportHeight) * 0.5f;
+    const float invHalfVpW = 2.0f / static_cast<float>(viewportWidth);
+    const float invHalfVpH = 2.0f / static_cast<float>(viewportHeight);
 
     auto direction = [&](size_t from, size_t to, float& x, float& y) {
-        x = (centerline[to * 5] - centerline[from * 5]) * viewportWidth * 0.5f;
-        y = (centerline[to * 5 + 1] - centerline[from * 5 + 1]) * viewportHeight * 0.5f;
+        x = (centerline[to * 5] - centerline[from * 5]) * halfVpW;
+        y = (centerline[to * 5 + 1] - centerline[from * 5 + 1]) * halfVpH;
         const float length = std::sqrt(x * x + y * y);
         if (length <= 1e-5f) return false;
-        x /= length;
-        y /= length;
+        const float invLength = 1.0f / length;
+        x *= invLength;
+        y *= invLength;
         return true;
     };
 
@@ -63,15 +71,16 @@ std::vector<float> VisualizerGeometry::buildTraceRibbon(
         float tangentY = incomingY + outgoingY;
         const float tangentLength = std::sqrt(tangentX * tangentX + tangentY * tangentY);
         if (tangentLength > 1e-5f) {
-            tangentX /= tangentLength;
-            tangentY /= tangentLength;
+            const float invTan = 1.0f / tangentLength;
+            tangentX *= invTan;
+            tangentY *= invTan;
         } else {
             tangentX = outgoingX;
             tangentY = outgoingY;
         }
 
-        float normalX = -tangentY;
-        float normalY = tangentX;
+        const float normalX = -tangentY;
+        const float normalY = tangentX;
         const float outgoingNormalX = -outgoingY;
         const float outgoingNormalY = outgoingX;
         const float alignment = std::abs(normalX * outgoingNormalX + normalY * outgoingNormalY);
@@ -79,14 +88,33 @@ std::vector<float> VisualizerGeometry::buildTraceRibbon(
             halfWidth / std::max(alignment, 0.25f),
             halfWidth * 2.0f);
 
-        const float offsetX = normalX * miterLength * 2.0f / viewportWidth;
-        const float offsetY = normalY * miterLength * 2.0f / viewportHeight;
+        const float offsetX = normalX * miterLength * invHalfVpW;
+        const float offsetY = normalY * miterLength * invHalfVpH;
         const float x = centerline[i * 5];
         const float y = centerline[i * 5 + 1];
         const float intensity = centerline[i * 5 + 4];
 
-        ribbon.insert(ribbon.end(), {x + offsetX, y + offsetY, 0.0f, 0.0f, intensity});
-        ribbon.insert(ribbon.end(), {x - offsetX, y - offsetY, 0.0f, 1.0f, intensity});
+        ribbon.push_back(x + offsetX);
+        ribbon.push_back(y + offsetY);
+        ribbon.push_back(0.0f);
+        ribbon.push_back(0.0f);
+        ribbon.push_back(intensity);
+
+        ribbon.push_back(x - offsetX);
+        ribbon.push_back(y - offsetY);
+        ribbon.push_back(0.0f);
+        ribbon.push_back(1.0f);
+        ribbon.push_back(intensity);
     }
+}
+
+std::vector<float> VisualizerGeometry::buildTraceRibbon(
+    const std::vector<float>& centerline,
+    float widthPixels,
+    int viewportWidth,
+    int viewportHeight
+) {
+    std::vector<float> ribbon;
+    buildTraceRibbon(centerline, widthPixels, viewportWidth, viewportHeight, ribbon);
     return ribbon;
 }

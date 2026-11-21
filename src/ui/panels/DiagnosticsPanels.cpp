@@ -1,52 +1,46 @@
 #include "UIManager.hpp"
 #include "UIHelpers.hpp"
-#include "ConfigLogic.hpp"
-#include "RenderManager.hpp"
-#include "imgui_impl_glfw.h"
-#include "imgui_impl_opengl3.h"
-#include <GLFW/glfw3.h>
-#include <iostream>
-#include <cstring>
-#include <vector>
-#include <filesystem>
-#include "VideoRenderManager.hpp"
+#include "AssetPaths.hpp"
+#include "Utf8Paths.hpp"
 
-namespace fs = std::filesystem;
+#include <GLFW/glfw3.h>
 
 void UIManager::renderDebugInfo(AppState& state, SystemStats& systemStats, AudioEngine& audioEngine, GLFWwindow* window) {
-    if (state.showDebugInfo) {
+    if (state.ui.showDebugInfo) {
         systemStats.update(ImGui::GetIO().DeltaTime);
-        ImGui::Begin("Debug Info", &state.showDebugInfo);
-        
+        ImGui::Begin("Debug Info", &state.ui.showDebugInfo);
+
         // === RENDERING STATS ===
         ImGui::Text("=== Rendering ===");
         ImGui::Text("FPS: %.1f", ImGui::GetIO().Framerate);
         ImGui::Text("Frame Time: %.2f ms", systemStats.getFrameTimeMs());
-        ImGui::Text("  Min/Max/Avg: %.2f / %.2f / %.2f ms", 
-            systemStats.getMinFrameTimeMs(), 
-            systemStats.getMaxFrameTimeMs(), 
+        ImGui::Text("  Min/Max/Avg: %.2f / %.2f / %.2f ms",
+            systemStats.getMinFrameTimeMs(),
+            systemStats.getMaxFrameTimeMs(),
             systemStats.getAvgFrameTimeMs());
-        
+
         if (window) {
             int width, height;
             glfwGetFramebufferSize(window, &width, &height);
             ImGui::Text("Resolution: %dx%d", width, height);
         }
-        ImGui::Text("VSync: %s", state.enableVsync ? "ON" : "OFF");
-        if (!state.enableVsync) {
-            ImGui::Text("Target FPS: %d", state.targetFps);
+        ImGui::Text("VSync: %s", state.config.enableVsync ? "ON" : "OFF");
+        if (!state.config.enableVsync) {
+            ImGui::Text("Target FPS: %d", state.config.targetFps);
         }
-        
+
         // === AUDIO STATS ===
         ImGui::Separator();
         ImGui::Text("=== Audio ===");
         const char* modeNames[] = { "File", "Live Capture", "Test Tone", "Osc Music" };
-        ImGui::Text("Mode: %s", modeNames[(int)state.currentAudioMode]);
+        const int modeIdx = static_cast<int>(state.config.currentAudioMode);
+        const char* modeLabel = (modeIdx >= 0 && modeIdx < IM_ARRAYSIZE(modeNames)) ? modeNames[modeIdx] : "Unknown";
+        ImGui::Text("Mode: %s", modeLabel);
         ImGui::Text("Sample Rate: %u Hz", audioEngine.getSampleRate());
         ImGui::Text("Channels: %zu", audioEngine.getChannels());
         ImGui::Text("Playing: %s", audioEngine.isPlaying() ? "YES" : "NO");
-        
-        if (state.currentAudioMode == AudioMode::File) {
+
+        if (state.config.currentAudioMode == AudioMode::File) {
             float pos = audioEngine.getPosition();
             float dur = audioEngine.getDuration();
             ImGui::Text("Position: %.1f / %.1f s", pos, dur);
@@ -54,14 +48,14 @@ void UIManager::renderDebugInfo(AppState& state, SystemStats& systemStats, Audio
                 float progress = pos / dur;
                 ImGui::ProgressBar(progress, ImVec2(-1, 0), "");
             }
-        } else if (state.currentAudioMode == AudioMode::Capture) {
-            if (state.useSpecificCaptureDevice) {
-                ImGui::Text("Device: %s", state.selectedCaptureDeviceName);
+        } else if (state.config.currentAudioMode == AudioMode::Capture) {
+            if (state.config.useSpecificCaptureDevice) {
+                ImGui::Text("Device: %s", state.config.selectedCaptureDeviceName.c_str());
             } else {
                 ImGui::Text("Device: Default");
             }
         }
-        
+
         // === SYSTEM RESOURCES ===
         ImGui::Separator();
         ImGui::Text("=== System Resources ===");
@@ -70,35 +64,51 @@ void UIManager::renderDebugInfo(AppState& state, SystemStats& systemStats, Audio
         ImGui::Text("CPU (Process): %.1f%%", systemStats.getProcessCpuUsage());
         ImGui::Text("RAM Usage:     %.1f MB", systemStats.getRamUsageMB());
         ImGui::Text("RAM Peak:      %.1f MB", systemStats.getPeakRamUsageMB());
-        
+
         ImGui::Text("GPU: %s", systemStats.getGpuInfo().c_str());
         if (systemStats.getGpuVramTotalMB() > 0) {
-            ImGui::Text("VRAM: %.0f / %.0f MB", 
-                systemStats.getGpuVramUsedMB(), 
+            ImGui::Text("VRAM: %.0f / %.0f MB",
+                systemStats.getGpuVramUsedMB(),
                 systemStats.getGpuVramTotalMB());
         }
-        
+
         // === APPLICATION STATE ===
         ImGui::Separator();
         ImGui::Text("=== Application ===");
-        ImGui::Text("Active Layers: %zu", state.layers.size());
-        if (strlen(state.filePath) > 0) {
-            ImGui::Text("File: %s", state.filePath);
+        ImGui::Text("Active Layers: %zu", state.config.layers.size());
+        if (!state.fx.filePath.empty()) {
+            ImGui::Text("File: %s", state.fx.filePath.c_str());
         }
-        
+
+        // === SHADERS ===
+        ImGui::Separator();
+        ImGui::Text("=== Shaders ===");
+        const std::string shaderDir = Utf8Paths::toUtf8(AssetPaths::shaderDirectory());
+        ImGui::TextWrapped("Dir: %s", shaderDir.c_str());
+        ImGui::Checkbox("Auto Hot-Reload Shaders", &state.ui.shaderHotReloadEnabled);
+        if (ImGui::Button("Reload Shaders (F5)")) {
+            state.ui.requestShaderReload = true;
+        }
+        ImGui::SameLine();
+        ImGui::Text("Reloads: %d", state.ui.shaderReloadCount);
+        if (!state.ui.shaderReloadStatus.empty()) {
+            const ImVec4 color = state.ui.shaderReloadError
+                ? ImVec4(1.0f, 0.35f, 0.35f, 1.0f)
+                : ImVec4(0.35f, 1.0f, 0.45f, 1.0f);
+            ImGui::PushStyleColor(ImGuiCol_Text, color);
+            ImGui::TextWrapped("%s", state.ui.shaderReloadStatus.c_str());
+            ImGui::PopStyleColor();
+        }
+
         ImGui::End();
     }
 }
 
 void UIManager::renderGlobalSettings(AppState& state) {
-    if (state.showGlobalSettings) {
-        ImGui::Begin("Global Settings", &state.showGlobalSettings);
-        ImGui::Text("Persistence / CRT Effects");
-        ImGui::SliderFloat("Phosphor Decay", &state.phosphorDecay, 0.0f, 1.0f);
-        ImGui::SameLine(); HelpMarker("1.0 = Instant clear (No trails). 0.01 = Long trails.");
-        if (ImGui::Button("Reset Decay")) state.phosphorDecay = 0.1f;
-        if (ImGui::CollapsingHeader("Oscilloscope Display")) {
-            auto& scope = state.oscilloscopeDisplay;
+    if (state.ui.showGlobalSettings) {
+        ImGui::Begin("Global Settings", &state.ui.showGlobalSettings);
+        if (ImGui::CollapsingHeader("Oscilloscope Display", ImGuiTreeNodeFlags_DefaultOpen)) {
+            auto& scope = state.config.oscilloscopeDisplay;
             ImGui::Checkbox("Graticule", &scope.graticuleEnabled);
             ImGui::SliderFloat("Graticule Opacity", &scope.graticuleOpacity, 0.0f, 1.0f);
             ImGui::SliderInt("Grid Columns", &scope.graticuleColumns, 1, 20);
@@ -106,26 +116,22 @@ void UIManager::renderGlobalSettings(AppState& state) {
             ImGui::SliderFloat("Fast Decay (ms)", &scope.phosphorFastDecayMs, 5.0f, 500.0f);
             ImGui::SliderFloat("Slow Decay (ms)", &scope.phosphorSlowDecayMs, 20.0f, 5000.0f);
             ImGui::SliderFloat("Slow Phosphor Weight", &scope.phosphorSlowWeight, 0.0f, 1.0f);
-            ImGui::SliderFloat("Phosphor Saturation", &scope.phosphorSaturation, 0.0f, 3.0f);
-            ImGui::Checkbox("Measurement Overlay", &scope.measurementOverlay);
-            ImGui::Checkbox("Include Overlay in Video", &scope.overlayInVideo);
         }
-        
+
         ImGui::Text("Audio Input");
-        ImGui::SliderFloat("Global Gain (Pre-Amp)", &state.globalGain, 0.1f, 100.0f);
+        ImGui::SliderFloat("Global Gain (Pre-Amp)", &state.config.globalGain, 0.1f, 100.0f);
         ImGui::SameLine(); HelpMarker("Boosts input signal level. Useful for Windows WASAPI which captures at lower levels.");
-        
+
         ImGui::Separator();
-        if (ImGui::Button("Background Settings")) state.showZenKunSettings = true;
+        if (ImGui::Button("Background Settings")) state.ui.showZenKunSettings = true;
 
         ImGui::Separator();
         ImGui::Text("Display Settings");
-        ImGui::Checkbox("Enable V-Sync", &state.enableVsync);
-        if (!state.enableVsync) {
-            ImGui::SliderInt("Target FPS", &state.targetFps, 15, 300);
+        ImGui::Checkbox("Enable V-Sync", &state.config.enableVsync);
+        if (!state.config.enableVsync) {
+            ImGui::SliderInt("Target FPS", &state.config.targetFps, 15, 300);
         }
-        
+
         ImGui::End();
     }
 }
-

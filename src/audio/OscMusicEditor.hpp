@@ -1,8 +1,11 @@
 #ifndef OSCMUSIC_EDITOR_HPP
 #define OSCMUSIC_EDITOR_HPP
 
+#include <memory>
 #include <string>
 #include <vector>
+
+struct te_expr;
 
 struct OscMusicPreset {
     std::string name;
@@ -21,6 +24,10 @@ class OscMusicEditor {
 public:
     OscMusicEditor();
     ~OscMusicEditor();
+    OscMusicEditor(const OscMusicEditor&) = delete;
+    OscMusicEditor& operator=(const OscMusicEditor&) = delete;
+    OscMusicEditor(OscMusicEditor&&) = delete;
+    OscMusicEditor& operator=(OscMusicEditor&&) = delete;
 
     // Expression evaluation
     bool setExpressions(const std::string& xExpr, const std::string& yExpr);
@@ -55,12 +62,17 @@ private:
     bool m_isValid;
     float m_baseFreq = 440.0f;
     
-    // Evaluation state
+    struct TeExprDeleter {
+        void operator()(te_expr* expr) const noexcept;
+    };
+    using TeExprPtr = std::unique_ptr<te_expr, TeExprDeleter>;
+
+    // Evaluation state (tinyexpr holds raw pointers to m_evalT / m_evalF, hence non-movable)
     double m_evalT = 0.0;
     double m_evalF = 440.0;
-    void* m_xParsed = nullptr;
-    void* m_yParsed = nullptr;
-    void* m_zParsed = nullptr;
+    TeExprPtr m_xParsed;
+    TeExprPtr m_yParsed;
+    TeExprPtr m_zParsed;
     
     std::vector<OscMusicPreset> m_presets;
     

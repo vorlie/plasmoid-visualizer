@@ -1,14 +1,11 @@
 #include "Texture2D.hpp"
+#include "Utf8Paths.hpp"
 
 #include "stb_image.h"
 #include <fstream>
 #include <iostream>
 #include <iterator>
 #include <vector>
-
-Texture2D::~Texture2D() {
-    reset();
-}
 
 bool Texture2D::loadRgba(const std::filesystem::path& path, bool flipVertically) {
     int width = 0;
@@ -24,13 +21,12 @@ bool Texture2D::loadRgba(const std::filesystem::path& path, bool flipVertically)
             bytes.data(), static_cast<int>(bytes.size()),
             &width, &height, &channels, 4);
     if (!data) {
-        std::cerr << "Failed to load image: " << path.string() << std::endl;
+        std::cerr << "Failed to load image: " << Utf8Paths::toUtf8(path) << std::endl;
         return false;
     }
 
-    GLuint texture = 0;
-    glGenTextures(1, &texture);
-    glBindTexture(GL_TEXTURE_2D, texture);
+    auto texture = gl::Texture::create();
+    glBindTexture(GL_TEXTURE_2D, texture.get());
     glTexImage2D(
         GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0,
         GL_RGBA, GL_UNSIGNED_BYTE, data);
@@ -40,16 +36,14 @@ bool Texture2D::loadRgba(const std::filesystem::path& path, bool flipVertically)
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
     stbi_image_free(data);
 
-    reset();
-    m_id = texture;
+    m_id = std::move(texture);
     m_width = width;
     m_height = height;
     return true;
 }
 
 void Texture2D::reset() noexcept {
-    if (m_id != 0) glDeleteTextures(1, &m_id);
-    m_id = 0;
+    m_id.reset();
     m_width = 0;
     m_height = 0;
 }

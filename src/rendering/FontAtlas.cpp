@@ -1,4 +1,5 @@
 #include "FontAtlas.hpp"
+#include "Utf8Paths.hpp"
 
 #include "stb_truetype.h"
 #include <algorithm>
@@ -30,7 +31,7 @@ FontAtlas::~FontAtlas() {
 bool FontAtlas::load(const std::filesystem::path& path, float pixelSize) {
     std::ifstream file(path, std::ios::binary | std::ios::ate);
     if (!file) {
-        std::cerr << "Failed to open font file: " << path.string() << std::endl;
+        std::cerr << "Failed to open font file: " << Utf8Paths::toUtf8(path) << std::endl;
         return false;
     }
 
@@ -43,15 +44,14 @@ bool FontAtlas::load(const std::filesystem::path& path, float pixelSize) {
     file.read(reinterpret_cast<char*>(next->fontData.data()), fileSize);
     const int offset = stbtt_GetFontOffsetForIndex(next->fontData.data(), 0);
     if (offset < 0 || !stbtt_InitFont(&next->font, next->fontData.data(), offset)) {
-        std::cerr << "Failed to initialize font: " << path.string() << std::endl;
+        std::cerr << "Failed to initialize font: " << Utf8Paths::toUtf8(path) << std::endl;
         return false;
     }
     next->scale = stbtt_ScaleForPixelHeight(&next->font, pixelSize);
 
     std::vector<unsigned char> blank(static_cast<size_t>(AtlasSize) * AtlasSize, 0);
-    GLuint texture = 0;
-    glGenTextures(1, &texture);
-    glBindTexture(GL_TEXTURE_2D, texture);
+    auto texture = gl::Texture::create();
+    glBindTexture(GL_TEXTURE_2D, texture.get());
     glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
     glTexImage2D(
         GL_TEXTURE_2D, 0, GL_RED, AtlasSize, AtlasSize, 0,
@@ -61,14 +61,13 @@ bool FontAtlas::load(const std::filesystem::path& path, float pixelSize) {
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 
-    reset();
-    m_texture = texture;
+    m_texture = std::move(texture);
     m_impl = std::move(next);
     return true;
 }
 
 const GlyphInfo* FontAtlas::glyph(std::uint32_t codepoint) {
-    if (!m_impl || m_texture == 0) return nullptr;
+    if (!m_impl || !m_texture.valid()) return nullptr;
     if (const auto found = m_impl->glyphs.find(codepoint); found != m_impl->glyphs.end()) {
         return &found->second;
     }
@@ -119,7 +118,7 @@ const GlyphInfo* FontAtlas::glyph(std::uint32_t codepoint) {
             }
         }
 
-        glBindTexture(GL_TEXTURE_2D, m_texture);
+        glBindTexture(GL_TEXTURE_2D, m_texture.get());
         glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
         glTexSubImage2D(
             GL_TEXTURE_2D, 0, m_impl->cursorX, m_impl->cursorY,
@@ -139,7 +138,6 @@ int FontAtlas::atlasSize() const noexcept {
 }
 
 void FontAtlas::reset() noexcept {
-    if (m_texture != 0) glDeleteTextures(1, &m_texture);
-    m_texture = 0;
+    m_texture.reset();
     m_impl.reset();
 }

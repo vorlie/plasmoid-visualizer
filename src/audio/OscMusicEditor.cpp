@@ -1,9 +1,11 @@
 #include "OscMusicEditor.hpp"
 #include "tinyexpr.h"
-#include <cmath>
-#include <iostream>
 #include <algorithm>
-#include <random>
+#include <cmath>
+
+void OscMusicEditor::TeExprDeleter::operator()(te_expr* expr) const noexcept {
+    if (expr) te_free(expr);
+}
 
 static double te_pi = 3.14159265358979323846;
 static double te_tau = 6.28318530717958647692;
@@ -32,25 +34,21 @@ static double te_sqr_hz(double f, double t) { return (sin(f * t * te_tau) >= 0) 
 static double te_tri_hz(double f, double t) { return 2.0 * std::abs(2.0 * (f * t - std::floor(f * t + 0.5))) - 1.0; }
 static double te_saw_hz(double f, double t) { double p = f * t; return 2.0 * (p - std::floor(p + 0.5)); }
 
-OscMusicEditor::OscMusicEditor() 
+OscMusicEditor::OscMusicEditor()
     : m_xExpr("sin(t * 2 * 3.14159)"),
       m_yExpr("cos(t * 2 * 3.14159)"),
       m_zExpr("1"),
-      m_isValid(true),
-      m_xParsed(nullptr),
-      m_yParsed(nullptr) {
+      m_isValid(true) {
     initializePresets();
     validateExpressions(m_lastError);
 }
 
-OscMusicEditor::~OscMusicEditor() {
-    cleanupExpressions();
-}
+OscMusicEditor::~OscMusicEditor() = default;
 
 void OscMusicEditor::cleanupExpressions() {
-    if (m_xParsed) { te_free((te_expr*)m_xParsed); m_xParsed = nullptr; }
-    if (m_yParsed) { te_free((te_expr*)m_yParsed); m_yParsed = nullptr; }
-    if (m_zParsed) { te_free((te_expr*)m_zParsed); m_zParsed = nullptr; }
+    m_xParsed.reset();
+    m_yParsed.reset();
+    m_zParsed.reset();
 }
 
 void OscMusicEditor::initializePresets() {
@@ -101,15 +99,14 @@ bool OscMusicEditor::validateExpressions(std::string& errorMsg) {
     };
     
     int xErr = 0, yErr = 0, zErr = 0;
-    m_xParsed = (void*)te_compile(m_xExpr.c_str(), vars, 13, &xErr);
-    m_yParsed = (void*)te_compile(m_yExpr.c_str(), vars, 13, &yErr);
-    m_zParsed = (void*)te_compile(m_zExpr.c_str(), vars, 13, &zErr);
-    
+    m_xParsed.reset(te_compile(m_xExpr.c_str(), vars, 13, &xErr));
+    m_yParsed.reset(te_compile(m_yExpr.c_str(), vars, 13, &yErr));
+    m_zParsed.reset(te_compile(m_zExpr.c_str(), vars, 13, &zErr));
+
     if (!m_xParsed) {
         errorMsg = "X expression error at position " + std::to_string(xErr);
         m_isValid = false;
-        if (m_yParsed) { te_free((te_expr*)m_yParsed); m_yParsed = nullptr; }
-        if (m_zParsed) { te_free((te_expr*)m_zParsed); m_zParsed = nullptr; }
+        cleanupExpressions();
         return false;
     }
     if (!m_zParsed) {
@@ -118,18 +115,18 @@ bool OscMusicEditor::validateExpressions(std::string& errorMsg) {
         cleanupExpressions();
         return false;
     }
-    
+
     if (!m_yParsed) {
         errorMsg = "Y expression error at position " + std::to_string(yErr);
         m_isValid = false;
-        te_free((te_expr*)m_xParsed); m_xParsed = nullptr;
+        cleanupExpressions();
         return false;
     }
-    
+
     // Test evaluation
-    double xVal = te_eval((te_expr*)m_xParsed);
-    double yVal = te_eval((te_expr*)m_yParsed);
-    double zVal = te_eval((te_expr*)m_zParsed);
+    double xVal = te_eval(m_xParsed.get());
+    double yVal = te_eval(m_yParsed.get());
+    double zVal = te_eval(m_zParsed.get());
     
     if (std::isnan(xVal) || std::isinf(xVal)) {
         errorMsg = "X expression produces invalid values (NaN/Inf)";
@@ -165,44 +162,52 @@ std::vector<float> OscMusicEditor::generateStereoBuffer(float duration, int samp
 OscMusicBuffer OscMusicEditor::generateXYBuffer(float duration, int sampleRate) {
     OscMusicBuffer output;
     if (!m_isValid || !m_xParsed || !m_yParsed || !m_zParsed) return output;
-    
-    int totalSamples = (int)(duration * sampleRate);
-    output.stereo.reserve(totalSamples * 2);
-    output.z.reserve(totalSamples);
+    if (duration <= 0.0f || sampleRate <= 0) return output;
+
+    constexpr int kMaxSamples = 192000 * 60;
+    const double rawSamples = static_cast<double>(duration) * static_cast<double>(sampleRate);
+    const int totalSamples = static_cast<int>(std::clamp(rawSamples, 1.0, static_cast<double>(kMaxSamples)));
+    output.stereo.reserve(static_cast<size_t>(totalSamples) * 2);
+    output.z.reserve(static_cast<size_t>(totalSamples));
     
     m_evalF = (double)m_baseFreq;
     
+    auto sanitizeClamp = [](double value, float lo, float hi) -> float {
+        if (!std::isfinite(value)) return 0.0f;
+        return std::clamp(static_cast<float>(value), lo, hi);
+    };
+
     for (int i = 0; i < totalSamples; ++i) {
         m_evalT = (double)i / sampleRate;
-        
-        float x = (float)te_eval((te_expr*)m_xParsed);
-        float y = (float)te_eval((te_expr*)m_yParsed);
-        float z = (float)te_eval((te_expr*)m_zParsed);
-        
-        x = std::clamp(x, -1.0f, 1.0f);
-        y = std::clamp(y, -1.0f, 1.0f);
-        
+
+        const float x = sanitizeClamp(te_eval(m_xParsed.get()), -1.0f, 1.0f);
+        const float y = sanitizeClamp(te_eval(m_yParsed.get()), -1.0f, 1.0f);
+        const float z = sanitizeClamp(te_eval(m_zParsed.get()), 0.0f, 1.0f);
+
         output.stereo.push_back(x);
         output.stereo.push_back(y);
-        output.z.push_back(std::clamp(z, 0.0f, 1.0f));
+        output.z.push_back(z);
     }
-    
+
     return output;
 }
 
 std::vector<float> OscMusicEditor::getPreviewPoints(int count, float timeRange) {
     std::vector<float> points;
-    if (!m_isValid || !m_xParsed || !m_yParsed) return points;
-    
-    points.reserve(count * 2);
+    if (!m_isValid || !m_xParsed || !m_yParsed || count < 2) return points;
+
+    points.reserve(static_cast<size_t>(count) * 2);
     m_evalF = (double)m_baseFreq;
-    
+
+    auto sanitizeClamp = [](double value) -> float {
+        if (!std::isfinite(value)) return 0.0f;
+        return std::clamp(static_cast<float>(value), -1.0f, 1.0f);
+    };
+
     for (int i = 0; i < count; ++i) {
         m_evalT = (double)i / (count - 1) * timeRange;
-        float x = (float)te_eval((te_expr*)m_xParsed);
-        float y = (float)te_eval((te_expr*)m_yParsed);
-        points.push_back(std::clamp(x, -1.0f, 1.0f));
-        points.push_back(std::clamp(y, -1.0f, 1.0f));
+        points.push_back(sanitizeClamp(te_eval(m_xParsed.get())));
+        points.push_back(sanitizeClamp(te_eval(m_yParsed.get())));
     }
     return points;
 }

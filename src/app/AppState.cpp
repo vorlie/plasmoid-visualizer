@@ -1,5 +1,5 @@
 #include "AppState.hpp"
 
 AppState::AppState() {
-    mediaOverlay.lyrics.parseLrc(mediaOverlay.lyricSource);
+    config.mediaOverlay.lyrics.parseLrc(config.mediaOverlay.lyricSource);
 }

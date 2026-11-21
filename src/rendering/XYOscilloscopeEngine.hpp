@@ -3,6 +3,7 @@
 #include "XYOscilloscopeTypes.hpp"
 
 #include <unordered_map>
+#include <vector>
 
 class XYOscilloscopeEngine {
 public:
@@ -29,12 +30,27 @@ public:
         float lastY = 0.0f;
         bool hasLast = false;
         XYTraceBatch heldSweep;
+        XYMeasurements cachedMeasurements;
+        int framesSinceMeasure = 0;
+        bool hasMeasured = false;
     };
 
 private:
+    struct PreparedSample {
+        float x;
+        float y;
+        float z;
+        bool invalid;
+    };
+
     XYTraceBatch process(
         LayerId layerId, const XYLayerSettings& settings,
         const XYInputChunk& input, bool continuous,
         int viewportWidth, int viewportHeight);
+
     std::unordered_map<LayerId, Runtime> m_runtime;
+    std::vector<float> m_conditionedX;
+    std::vector<float> m_conditionedY;
+    std::vector<PreparedSample> m_prepared;
+    std::vector<size_t> m_crossingsScratch;
 };

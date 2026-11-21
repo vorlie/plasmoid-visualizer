@@ -1,8 +1,8 @@
 #pragma once
 
+#include "GlResources.hpp"
 #include "OverlayPreset.hpp"
-#include <GL/glew.h>
-#include <cstdio>
+#include "SubprocessPipe.hpp"
 #include <atomic>
 #include <mutex>
 #include <string>
@@ -15,6 +15,8 @@ public:
     AnimatedBackground() = default;
     AnimatedBackground(const AnimatedBackground&) = delete;
     AnimatedBackground& operator=(const AnimatedBackground&) = delete;
+    AnimatedBackground(AnimatedBackground&&) = delete;
+    AnimatedBackground& operator=(AnimatedBackground&&) = delete;
 
     GLuint update(
         OverlayBackgroundType type,
@@ -43,7 +45,7 @@ private:
     void upload(const unsigned char* pixels, int width, int height);
     void stopVideo();
 
-    GLuint m_texture = 0;
+    gl::Texture m_texture;
     int m_textureWidth = 0;
     int m_textureHeight = 0;
     OverlayBackgroundType m_type = OverlayBackgroundType::None;
@@ -55,9 +57,12 @@ private:
     int m_gifWidth = 0;
     int m_gifHeight = 0;
     int m_gifFrameCount = 0;
+    int m_gifTotalDelay = 0;
+    int m_lastGifFrame = -1;
 
-    FILE* m_videoPipe = nullptr;
+    SubprocessPipe m_videoProcess;
     std::vector<unsigned char> m_videoFrame;
+    std::vector<unsigned char> m_uploadStagingFrame;
     int m_videoWidth = 0;
     int m_videoHeight = 0;
     int m_videoFrameIndex = -1;

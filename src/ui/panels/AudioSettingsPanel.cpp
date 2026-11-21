@@ -1,137 +1,145 @@
 #include "UIManager.hpp"
 #include "UIHelpers.hpp"
-#include "ConfigLogic.hpp"
-#include "RenderManager.hpp"
-#include "imgui_impl_glfw.h"
-#include "imgui_impl_opengl3.h"
-#include <GLFW/glfw3.h>
-#include <iostream>
-#include <cstring>
-#include <vector>
-#include <filesystem>
 #include "VideoRenderManager.hpp"
 
-namespace fs = std::filesystem;
+#include <algorithm>
+#include <cstdio>
+#include <string>
+#include <vector>
+
+void UIManager::refreshCaptureDevices(AppState& state, AudioEngine& audioEngine) {
+    m_cachedCaptureDevices = audioEngine.getAvailableDevices(true);
+    m_captureDevicesLoaded = true;
+    m_selectedCaptureDeviceIdx = -1;
+    if (state.config.useSpecificCaptureDevice) {
+        for (int i = 0; i < static_cast<int>(m_cachedCaptureDevices.size()); ++i) {
+            if (m_cachedCaptureDevices[i].name == state.config.selectedCaptureDeviceName) {
+                m_selectedCaptureDeviceIdx = i;
+                break;
+            }
+        }
+    }
+}
 
 void UIManager::renderAudioSettings(AppState& state, AudioEngine& audioEngine, OscMusicEditor& oscMusicEditor, VideoRenderManager& videoRenderManager) {
-    if (state.showAudioSettings) {
-        ImGui::Begin("Audio Settings", &state.showAudioSettings);
-        
-        static int modeInt = (int)state.currentAudioMode;
+    if (state.ui.showAudioSettings) {
+        ImGui::Begin("Audio Settings", &state.ui.showAudioSettings);
+
+        int modeInt = static_cast<int>(state.config.currentAudioMode);
         const char* modes[] = { "Load File", "Live Capture", "Test Tone", "Oscilloscope Music" };
         if (ImGui::Combo("Input Mode", &modeInt, modes, IM_ARRAYSIZE(modes))) {
-            state.currentAudioMode = (AudioMode)modeInt;
-            if (state.currentAudioMode == AudioMode::Capture) {
-                if (state.useSpecificCaptureDevice) {
-                    auto devices = audioEngine.getAvailableDevices(true);
-                    ma_device_id* pID = nullptr;
-                    ma_device_type type = ma_device_type_capture;
-                    for (auto& d : devices) {
-                        if (d.name == state.selectedCaptureDeviceName) {
-                            pID = &d.id;
-                            type = d.type;
-                            break;
-                        }
-                    }
-                    audioEngine.startCapture(pID, type);
+            state.config.currentAudioMode = static_cast<AudioMode>(modeInt);
+            if (state.config.currentAudioMode == AudioMode::Capture) {
+                refreshCaptureDevices(state, audioEngine);
+                if (state.config.useSpecificCaptureDevice && m_selectedCaptureDeviceIdx >= 0 &&
+                    m_selectedCaptureDeviceIdx < static_cast<int>(m_cachedCaptureDevices.size())) {
+                    audioEngine.startCapture(
+                        &m_cachedCaptureDevices[m_selectedCaptureDeviceIdx].id,
+                        m_cachedCaptureDevices[m_selectedCaptureDeviceIdx].type);
                 } else {
                     audioEngine.startCapture(nullptr);
                 }
                 audioEngine.play();
-            } else if (state.currentAudioMode == AudioMode::TestTone) {
+            } else if (state.config.currentAudioMode == AudioMode::TestTone) {
                 audioEngine.initTestTone();
             }
         }
-        
+
         ImGui::Separator();
-        
-        if (state.currentAudioMode == AudioMode::Capture) {
-            auto devices = audioEngine.getAvailableDevices(true);
-            static int selectedDeviceIdx = -1;
-            
-            // Try to find current selected device in the list if not already set
-            if (selectedDeviceIdx == -1 && state.useSpecificCaptureDevice) {
-                for (int i = 0; i < (int)devices.size(); ++i) {
-                    if (devices[i].name == state.selectedCaptureDeviceName) {
-                        selectedDeviceIdx = i;
-                        break;
-                    }
-                }
+
+        if (state.config.currentAudioMode == AudioMode::Capture) {
+            if (!m_captureDevicesLoaded) {
+                refreshCaptureDevices(state, audioEngine);
             }
 
             std::vector<const char*> deviceNames;
+            deviceNames.reserve(m_cachedCaptureDevices.size() + 1);
             deviceNames.push_back("Default Device");
-            for (const auto& d : devices) deviceNames.push_back(d.name.c_str());
+            for (const auto& d : m_cachedCaptureDevices) deviceNames.push_back(d.name.c_str());
 
-            int comboIdx = state.useSpecificCaptureDevice ? selectedDeviceIdx + 1 : 0;
-            if (ImGui::Combo("Capture Device", &comboIdx, deviceNames.data(), (int)deviceNames.size())) {
+            int comboIdx = (state.config.useSpecificCaptureDevice && m_selectedCaptureDeviceIdx >= 0 &&
+                            m_selectedCaptureDeviceIdx < static_cast<int>(m_cachedCaptureDevices.size()))
+                ? m_selectedCaptureDeviceIdx + 1
+                : 0;
+            if (ImGui::Combo("Capture Device", &comboIdx, deviceNames.data(), static_cast<int>(deviceNames.size()))) {
                 if (comboIdx == 0) {
-                    state.useSpecificCaptureDevice = false;
-                    selectedDeviceIdx = -1;
+                    state.config.useSpecificCaptureDevice = false;
+                    m_selectedCaptureDeviceIdx = -1;
                     audioEngine.startCapture(nullptr);
                 } else {
-                    selectedDeviceIdx = comboIdx - 1;
-                    state.useSpecificCaptureDevice = true;
-                    strncpy(state.selectedCaptureDeviceName, devices[selectedDeviceIdx].name.c_str(), sizeof(state.selectedCaptureDeviceName));
-                    audioEngine.startCapture(&devices[selectedDeviceIdx].id, devices[selectedDeviceIdx].type);
+                    m_selectedCaptureDeviceIdx = comboIdx - 1;
+                    state.config.useSpecificCaptureDevice = true;
+                    state.config.selectedCaptureDeviceName = m_cachedCaptureDevices[m_selectedCaptureDeviceIdx].name;
+                    audioEngine.startCapture(
+                        &m_cachedCaptureDevices[m_selectedCaptureDeviceIdx].id,
+                        m_cachedCaptureDevices[m_selectedCaptureDeviceIdx].type);
                 }
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Refresh##capture_devices")) {
+                refreshCaptureDevices(state, audioEngine);
             }
 
-            if (!state.useSpecificCaptureDevice) {
+            if (!state.config.useSpecificCaptureDevice) {
                 ImGui::Text("Capturing from default device...");
             } else {
-                ImGui::Text("Capturing from: %s", state.selectedCaptureDeviceName);
+                ImGui::Text("Capturing from: %s", state.config.selectedCaptureDeviceName.c_str());
             }
-        } else if (state.currentAudioMode == AudioMode::File) {
-            ImGui::InputText("File Path", state.filePath, sizeof(state.filePath));
+        } else if (state.config.currentAudioMode == AudioMode::File) {
+            UIHelpers::InputText("File Path", state.fx.filePath);
             if (ImGui::Button("Load & Play")) {
-                if (audioEngine.loadFile(state.filePath)) {
+                if (audioEngine.loadFile(state.fx.filePath)) {
                     audioEngine.play();
-                    state.statusMessage = "Loaded: " + std::string(state.filePath);
-                    state.statusColor = ImVec4(0, 1, 0, 1);
+                    state.ui.statusMessage = "Loaded: " + state.fx.filePath;
+                    state.ui.statusColor = ImVec4(0, 1, 0, 1);
                 } else {
-                    state.statusMessage = "Failed to load: " + std::string(state.filePath);
-                    state.statusColor = ImVec4(1, 0, 0, 1);
+                    state.ui.statusMessage = "Failed to load: " + state.fx.filePath;
+                    state.ui.statusColor = ImVec4(1, 0, 0, 1);
                 }
             }
-            ImGui::TextColored(state.statusColor, "%s", state.statusMessage.c_str());
+            ImGui::TextColored(state.ui.statusColor, "%s", state.ui.statusMessage.c_str());
             if (ImGui::Button("Play")) audioEngine.play();
             ImGui::SameLine();
             if (ImGui::Button("Pause")) audioEngine.pause();
             ImGui::SameLine();
             if (ImGui::Button("Stop")) audioEngine.stop();
+            ImGui::SameLine();
+            if (ImGui::Checkbox("Loop Track", &state.config.loopTrack)) {
+                audioEngine.setLoopTrack(state.config.loopTrack);
+            }
+            ImGui::SameLine();
+            HelpMarker("Enabled: loop current track. Disabled: advance to the next track in Playlist at EOF.");
 
             float currentPos = audioEngine.getPosition();
             float duration = audioEngine.getDuration();
             if (duration > 0) {
                 float progress = currentPos;
                 char formatBuf[64];
-                snprintf(formatBuf, sizeof(formatBuf), "%%.1f / %.1f s", duration);
+                std::snprintf(formatBuf, sizeof(formatBuf), "%%.1f / %.1f s", duration);
                 if (ImGui::SliderFloat("Progress", &progress, 0.0f, duration, formatBuf)) {
                     audioEngine.seekTo(progress);
                 }
             }
 
             ImGui::Separator();
-            static bool showRenderDialog = false;
             if (ImGui::Button("Render to Video")) {
-                showRenderDialog = true;
+                state.ui.showRenderDialog = true;
             }
 
-            if (showRenderDialog) {
-                ImGui::Begin("Render Video", &showRenderDialog);
-                auto& s = state.videoSettings;
-                auto& status = state.videoStatus;
+            if (state.ui.showRenderDialog) {
+                ImGui::Begin("Render Video", &state.ui.showRenderDialog);
+                auto& s = state.config.videoSettings;
+                auto& status = state.fx.videoStatus;
 
                 if (!status.isRendering) {
                     ImGui::InputInt("Width", &s.width);
                     ImGui::InputInt("Height", &s.height);
                     ImGui::InputInt("FPS", &s.fps);
-                    ImGui::InputText("Output File", s.outputPath, sizeof(s.outputPath));
+                    UIHelpers::InputText("Output File", s.outputPath);
 
                     const char* codecs[] = { "libx264 (CPU)", "h264_nvenc (NVIDIA)", "h264_vaapi (Intel/AMD)", "h264_amf (AMD)" };
                     ImGui::Combo("Codec", &s.codecIdx, codecs, IM_ARRAYSIZE(codecs));
-                    
+
                     ImGui::SliderInt("Quality (CRF/QP)", &s.crf, 0, 51);
                     ImGui::SameLine(); HelpMarker("Lower is better. 16-23 is good for x264.");
 
@@ -142,88 +150,110 @@ void UIManager::renderAudioSettings(AppState& state, AudioEngine& audioEngine, O
                     ImGui::Text("Status: Rendering...");
                     ImGui::Text("Frame: %d / %d", status.currentFrame, status.totalFrames);
                     ImGui::ProgressBar(status.progress, ImVec2(-1.0f, 0.0f));
-                    
+
                     if (ImGui::Button("Cancel Render")) {
                         videoRenderManager.cancelRender(state);
                     }
                 }
-                
+
                 if (!status.errorMessage.empty()) {
                     ImGui::TextColored(ImVec4(1, 0, 0, 1), "Error: %s", status.errorMessage.c_str());
-                    if (ImGui::Button("Clear Error")) status.errorMessage = "";
+                    if (ImGui::Button("Clear Error")) status.errorMessage.clear();
                 }
 
                 ImGui::End();
             }
-        } else if (state.currentAudioMode == AudioMode::TestTone) {
-            static float testFreq = 440.0f;
-            static float testFreqRight = 440.0f;
-            static bool testStereo = false;
-            static float testVol = 0.5f;
-            static int testType = 0;
-            
+        } else if (state.config.currentAudioMode == AudioMode::TestTone) {
+            auto& ui = state.ui;
             const char* types[] = { "Sine", "Square", "Sawtooth", "Triangle", "White Noise" };
-            if (ImGui::Combo("Waveform", &testType, types, IM_ARRAYSIZE(types))) {
-                audioEngine.setTestToneType((AudioEngine::TestToneType)testType);
+            if (ImGui::Combo("Waveform", &ui.testToneType, types, IM_ARRAYSIZE(types))) {
+                audioEngine.setTestToneType(static_cast<AudioEngine::TestToneType>(ui.testToneType));
             }
-            if (ImGui::Checkbox("Stereo Mode", &testStereo)) audioEngine.setTestToneStereo(testStereo);
+            if (ImGui::Checkbox("Stereo Mode", &ui.testToneStereo)) {
+                audioEngine.setTestToneStereo(ui.testToneStereo);
+            }
 
-            if (testStereo) {
-                if (ImGui::SliderFloat("Frequency L (Hz)", &testFreq, 20.0f, 2000.0f)) audioEngine.setTestToneFrequency(testFreq);
-                if (ImGui::SliderFloat("Frequency R (Hz)", &testFreqRight, 20.0f, 2000.0f)) audioEngine.setTestToneFrequencyRight(testFreqRight);
+            if (ui.testToneStereo) {
+                if (ImGui::SliderFloat("Frequency L (Hz)", &ui.testToneFreq, 20.0f, 2000.0f)) {
+                    audioEngine.setTestToneFrequency(ui.testToneFreq);
+                }
+                if (ImGui::SliderFloat("Frequency R (Hz)", &ui.testToneFreqRight, 20.0f, 2000.0f)) {
+                    audioEngine.setTestToneFrequencyRight(ui.testToneFreqRight);
+                }
             } else {
-                if (ImGui::SliderFloat("Frequency (Hz)", &testFreq, 20.0f, 2000.0f)) audioEngine.setTestToneFrequency(testFreq);
+                if (ImGui::SliderFloat("Frequency (Hz)", &ui.testToneFreq, 20.0f, 2000.0f)) {
+                    audioEngine.setTestToneFrequency(ui.testToneFreq);
+                }
             }
-            if (ImGui::SliderFloat("Volume", &testVol, 0.0f, 1.0f)) audioEngine.setTestToneVolume(testVol);
+            if (ImGui::SliderFloat("Volume", &ui.testToneVol, 0.0f, 1.0f)) {
+                audioEngine.setTestToneVolume(ui.testToneVol);
+            }
             if (ImGui::Button("Start Tone")) { audioEngine.initTestTone(); audioEngine.play(); }
             ImGui::SameLine();
             if (ImGui::Button("Stop Tone")) audioEngine.stop();
-        } else if (state.currentAudioMode == AudioMode::OscMusic) {
+        } else if (state.config.currentAudioMode == AudioMode::OscMusic) {
+            auto& ui = state.ui;
+            if (!ui.oscEditorSynced) {
+                ui.oscXExpr = oscMusicEditor.getXExpression();
+                ui.oscYExpr = oscMusicEditor.getYExpression();
+                ui.oscZExpr = oscMusicEditor.getZExpression();
+                ui.oscBaseFreq = oscMusicEditor.getBaseFrequency();
+                ui.oscPreviewDirty = true;
+                ui.oscEditorSynced = true;
+            }
+
             ImGui::Text("Oscilloscope Music Editor");
-            static char xExpr[256] = "sin(f * t * 2 * 3.14159)";
-            static char yExpr[256] = "cos(f * t * 2 * 3.14159)";
-            static char zExpr[256] = "1";
-            static float duration = 2.0f;
-            static float baseFreq = 440.0f;
-            
-            if (ImGui::InputText("X(t) Expression", xExpr, sizeof(xExpr))) oscMusicEditor.setExpressions(xExpr, yExpr, zExpr);
-            if (ImGui::InputText("Y(t) Expression", yExpr, sizeof(yExpr))) oscMusicEditor.setExpressions(xExpr, yExpr, zExpr);
-            if (ImGui::InputText("Z(t) Intensity", zExpr, sizeof(zExpr))) oscMusicEditor.setExpressions(xExpr, yExpr, zExpr);
-            if (ImGui::SliderFloat("Base Frequency (f)", &baseFreq, 20.0f, 2000.0f, "%.1f Hz")) oscMusicEditor.setBaseFrequency(baseFreq);
-            ImGui::SliderFloat("Duration (s)", &duration, 0.5f, 10.0f);
-            
+            if (UIHelpers::InputText("X(t) Expression", ui.oscXExpr)) {
+                oscMusicEditor.setExpressions(ui.oscXExpr, ui.oscYExpr, ui.oscZExpr);
+                ui.oscPreviewDirty = true;
+            }
+            if (UIHelpers::InputText("Y(t) Expression", ui.oscYExpr)) {
+                oscMusicEditor.setExpressions(ui.oscXExpr, ui.oscYExpr, ui.oscZExpr);
+                ui.oscPreviewDirty = true;
+            }
+            if (UIHelpers::InputText("Z(t) Intensity", ui.oscZExpr)) {
+                oscMusicEditor.setExpressions(ui.oscXExpr, ui.oscYExpr, ui.oscZExpr);
+                ui.oscPreviewDirty = true;
+            }
+            if (ImGui::SliderFloat("Base Frequency (f)", &ui.oscBaseFreq, 20.0f, 2000.0f, "%.1f Hz")) {
+                oscMusicEditor.setBaseFrequency(ui.oscBaseFreq);
+                ui.oscPreviewDirty = true;
+            }
+            ImGui::SliderFloat("Duration (s)", &ui.oscDuration, 0.5f, 10.0f);
+
             if (!oscMusicEditor.isValid()) {
                 ImGui::TextColored(ImVec4(1, 0, 0, 1), "Error: %s", oscMusicEditor.getErrorMessage().c_str());
             } else {
-                // Real-time Preview Canvas
                 ImGui::Text("Live Preview");
                 ImVec2 canvasSize = ImVec2(ImGui::GetContentRegionAvail().x, 200);
                 ImVec2 canvasPos = ImGui::GetCursorScreenPos();
+                ImGui::Dummy(canvasSize);
                 ImDrawList* drawList = ImGui::GetWindowDrawList();
                 drawList->AddRectFilled(canvasPos, ImVec2(canvasPos.x + canvasSize.x, canvasPos.y + canvasSize.y), IM_COL32(20, 20, 20, 255));
                 drawList->AddRect(canvasPos, ImVec2(canvasPos.x + canvasSize.x, canvasPos.y + canvasSize.y), IM_COL32(100, 100, 100, 255));
-                
-                // Draw a few cycles of the expression
-                int samples = 512;
-                float timeRange = 1.0f / baseFreq * 2.0f; // Show 2 cycles
-                auto previewPoints = oscMusicEditor.getPreviewPoints(samples, timeRange);
-                
-                if (!previewPoints.empty()) {
+
+                constexpr int samples = 512;
+                if (ui.oscPreviewDirty) {
+                    const float timeRange = 1.0f / std::max(ui.oscBaseFreq, 1.0f) * 2.0f;
+                    ui.oscPreviewPoints = oscMusicEditor.getPreviewPoints(samples, timeRange);
+                    ui.oscPreviewDirty = false;
+                }
+
+                if (ui.oscPreviewPoints.size() >= static_cast<size_t>(samples) * 2) {
                     for (int i = 0; i < samples - 1; ++i) {
                         ImVec2 p1 = ImVec2(
-                            canvasPos.x + (previewPoints[i*2] + 1.0f) * 0.5f * canvasSize.x,
-                            canvasPos.y + (previewPoints[i*2+1] + 1.0f) * 0.5f * canvasSize.y
+                            canvasPos.x + (ui.oscPreviewPoints[i * 2] + 1.0f) * 0.5f * canvasSize.x,
+                            canvasPos.y + (ui.oscPreviewPoints[i * 2 + 1] + 1.0f) * 0.5f * canvasSize.y
                         );
                         ImVec2 p2 = ImVec2(
-                            canvasPos.x + (previewPoints[(i+1)*2] + 1.0f) * 0.5f * canvasSize.x,
-                            canvasPos.y + (previewPoints[(i+1)*2+1] + 1.0f) * 0.5f * canvasSize.y
+                            canvasPos.x + (ui.oscPreviewPoints[(i + 1) * 2] + 1.0f) * 0.5f * canvasSize.x,
+                            canvasPos.y + (ui.oscPreviewPoints[(i + 1) * 2 + 1] + 1.0f) * 0.5f * canvasSize.y
                         );
                         drawList->AddLine(p1, p2, IM_COL32(0, 200, 255, 200), 1.5f);
                     }
-                    // Current "head" of the trace
                     ImVec2 head = ImVec2(
-                        canvasPos.x + (previewPoints[0] + 1.0f) * 0.5f * canvasSize.x,
-                        canvasPos.y + (previewPoints[1] + 1.0f) * 0.5f * canvasSize.y
+                        canvasPos.x + (ui.oscPreviewPoints[0] + 1.0f) * 0.5f * canvasSize.x,
+                        canvasPos.y + (ui.oscPreviewPoints[1] + 1.0f) * 0.5f * canvasSize.y
                     );
                     drawList->AddCircleFilled(head, 3.0f, IM_COL32(255, 255, 255, 255));
                 }
@@ -231,12 +261,14 @@ void UIManager::renderAudioSettings(AppState& state, AudioEngine& audioEngine, O
 
             if (ImGui::Button("Preview")) {
                 if (oscMusicEditor.isValid()) {
-                    OscMusicBuffer buffer = oscMusicEditor.generateXYBuffer(duration, 192000);
-                    audioEngine.setOscMusicBuffer(buffer.stereo, buffer.z);
+                    OscMusicBuffer buffer = oscMusicEditor.generateXYBuffer(ui.oscDuration, 192000);
+                    audioEngine.setOscMusicBuffer(std::move(buffer.stereo), std::move(buffer.z));
                     audioEngine.initOscMusic(192000);
                     audioEngine.setOscMusicMode(true);
                     audioEngine.play();
-                    for (auto& l : state.layers) if (l.visible) l.shape = VisualizerShape::OscilloscopeXY;
+                    for (auto& l : state.config.layers) {
+                        if (l.visible) l.shape = VisualizerShape::OscilloscopeXY;
+                    }
                 }
             }
             ImGui::SameLine();
@@ -244,15 +276,17 @@ void UIManager::renderAudioSettings(AppState& state, AudioEngine& audioEngine, O
                 audioEngine.stop();
                 audioEngine.setOscMusicMode(false);
             }
-            
-            ImGui::Separator(); ImGui::Text("Presets");
-            auto presets = oscMusicEditor.getPresets();
-            for (int i = 0; i < (int)presets.size(); i++) {
+
+            ImGui::Separator();
+            ImGui::Text("Presets");
+            const auto& presets = oscMusicEditor.getPresets();
+            for (int i = 0; i < static_cast<int>(presets.size()); i++) {
                 if (ImGui::Button(presets[i].name.c_str())) {
                     oscMusicEditor.loadPreset(i);
-                    strncpy(xExpr, oscMusicEditor.getXExpression().c_str(), sizeof(xExpr));
-                    strncpy(yExpr, oscMusicEditor.getYExpression().c_str(), sizeof(yExpr));
-                    strncpy(zExpr, oscMusicEditor.getZExpression().c_str(), sizeof(zExpr));
+                    ui.oscXExpr = oscMusicEditor.getXExpression();
+                    ui.oscYExpr = oscMusicEditor.getYExpression();
+                    ui.oscZExpr = oscMusicEditor.getZExpression();
+                    ui.oscPreviewDirty = true;
                 }
                 if ((i + 1) % 4 != 0) ImGui::SameLine();
             }
@@ -260,4 +294,3 @@ void UIManager::renderAudioSettings(AppState& state, AudioEngine& audioEngine, O
         ImGui::End();
     }
 }
-

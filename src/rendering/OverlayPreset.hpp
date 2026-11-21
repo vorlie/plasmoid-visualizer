@@ -1,24 +1,10 @@
 #pragma once
 
+#include "LyricsTimeline.hpp"
 #include <string>
 #include <vector>
 
 class Visualizer;
-
-struct LyricEvent {
-    float startSeconds = 0.0f;
-    float endSeconds = 0.0f;
-    std::string text;
-};
-
-class LyricsTimeline {
-public:
-    std::vector<LyricEvent> events;
-
-    void sortAndNormalize();
-    const LyricEvent* activeEvent(float timeSeconds) const;
-    bool parseLrc(const std::string& source, std::string* error = nullptr);
-};
 
 struct OverlayPresetStyle {
     bool showTopSpectrum = true;
@@ -73,17 +59,17 @@ struct MediaOverlayLayer {
     float backgroundOffsetY = 0.0f;
     OverlayVideoDecoder videoDecoder = OverlayVideoDecoder::Auto;
     int videoFps = 30;
-    char backgroundPath[512] = "";
-    char fontPath[512] = "";
-    char lyricsFontPath[512] = "";
-    char artist[256] = "Alan Walker ft. K-391, Tungevaag, Mangoo";
-    char title[256] = "Play";
+    std::string backgroundPath;
+    std::string fontPath;
+    std::string lyricsFontPath;
+    std::string artist = "Alan Walker ft. K-391, Tungevaag, Mangoo";
+    std::string title = "Play";
     LyricsTimeline lyrics;
-    char lyricSource[16384] =
+    std::string lyricSource =
         "[00:00.00]Lyrics\n"
         "[00:05.00]Add timestamped lines in View > Media Overlay";
-    char lyricFilePath[512] = "lyrics.lrc";
-    char lyricPreview[512] = "";
+    std::string lyricFilePath = "lyrics.lrc";
+    std::string lyricPreview;
 };
 
 struct OverlayFrameData {
@@ -104,6 +90,8 @@ public:
         const OverlayFrameData& frame) const;
 
 private:
+    mutable std::vector<float> m_spectrumVertices;
+
     void renderSpectrum(
         Visualizer& visualizer,
         const std::vector<float>& fft,

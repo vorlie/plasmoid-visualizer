@@ -1,6 +1,6 @@
 #pragma once
 
-#include <GL/glew.h>
+#include "GlResources.hpp"
 #include <cstdint>
 #include <filesystem>
 #include <memory>
@@ -22,17 +22,19 @@ public:
 
     FontAtlas(const FontAtlas&) = delete;
     FontAtlas& operator=(const FontAtlas&) = delete;
+    FontAtlas(FontAtlas&&) noexcept = default;
+    FontAtlas& operator=(FontAtlas&&) noexcept = default;
 
     bool load(const std::filesystem::path& path, float pixelSize);
     void reset() noexcept;
 
-    [[nodiscard]] bool loaded() const noexcept { return m_texture != 0; }
-    [[nodiscard]] GLuint texture() const noexcept { return m_texture; }
+    [[nodiscard]] bool loaded() const noexcept { return m_texture.valid(); }
+    [[nodiscard]] GLuint texture() const noexcept { return m_texture.get(); }
     const GlyphInfo* glyph(std::uint32_t codepoint);
     [[nodiscard]] int atlasSize() const noexcept;
 
 private:
     struct Impl;
-    GLuint m_texture = 0;
+    gl::Texture m_texture;
     std::unique_ptr<Impl> m_impl;
 };

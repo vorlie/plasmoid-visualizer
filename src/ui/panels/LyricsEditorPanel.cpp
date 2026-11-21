@@ -1,70 +1,64 @@
 #include "UIManager.hpp"
+#include "UIHelpers.hpp"
 #include "Utf8Paths.hpp"
 
 #include <algorithm>
 #include <cctype>
 #include <cmath>
 #include <cstdlib>
-#include <cstring>
-#include <fstream>
 #include <filesystem>
-#include <iomanip>
+#include <fstream>
 #include <sstream>
 #include <vector>
 
-namespace {
-void copyText(char* destination, size_t capacity, const std::string& source) {
-    if (capacity == 0) return;
-    std::strncpy(destination, source.c_str(), capacity - 1);
-    destination[capacity - 1] = '\0';
-}
+const std::vector<std::filesystem::path>& UIManager::getSystemFonts() {
+    if (m_systemFontsLoaded) return m_systemFonts;
+    m_systemFontsLoaded = true;
+    m_systemFonts.clear();
 
-const std::vector<std::filesystem::path>& systemFonts() {
-    static const std::vector<std::filesystem::path> fonts = [] {
-        std::vector<std::filesystem::path> result;
-        std::vector<std::filesystem::path> roots;
+    std::vector<std::filesystem::path> roots;
 #ifdef _WIN32
-        if (const char* windows = std::getenv("WINDIR")) {
-            roots.emplace_back(std::filesystem::path(windows) / "Fonts");
-        }
+    if (const wchar_t* windows = _wgetenv(L"WINDIR")) {
+        roots.emplace_back(std::filesystem::path(windows) / L"Fonts");
+    }
 #else
-        roots.emplace_back("/usr/share/fonts");
-        if (const char* userHome = std::getenv("HOME")) {
-            roots.emplace_back(std::filesystem::path(userHome) / ".local/share/fonts");
-        }
+    roots.emplace_back("/usr/share/fonts");
+    if (const char* userHome = std::getenv("HOME")) {
+        roots.emplace_back(std::filesystem::path(userHome) / ".local/share/fonts");
+    }
 #endif
-        for (const auto& root : roots) {
-            std::error_code error;
-            if (!std::filesystem::exists(root, error)) continue;
-            for (const auto& entry : std::filesystem::recursive_directory_iterator(
-                     root, std::filesystem::directory_options::skip_permission_denied, error)) {
-                if (!entry.is_regular_file(error)) continue;
-                std::string extension = entry.path().extension().string();
-                std::transform(extension.begin(), extension.end(), extension.begin(), ::tolower);
-                if (extension == ".ttf" || extension == ".otf" || extension == ".ttc") {
-                    result.push_back(entry.path());
-                }
+    for (const auto& root : roots) {
+        std::error_code error;
+        if (!std::filesystem::exists(root, error) || error) continue;
+        for (const auto& entry : std::filesystem::recursive_directory_iterator(
+                 root, std::filesystem::directory_options::skip_permission_denied, error)) {
+            if (error) break;
+            if (!entry.is_regular_file(error) || error) continue;
+            std::string extension = Utf8Paths::toUtf8(entry.path().extension());
+            std::transform(extension.begin(), extension.end(), extension.begin(), [](unsigned char c) {
+                return static_cast<char>(std::tolower(c));
+            });
+            if (extension == ".ttf" || extension == ".otf" || extension == ".ttc") {
+                m_systemFonts.push_back(entry.path());
             }
         }
-        std::sort(result.begin(), result.end(), [](const auto& a, const auto& b) {
-            return Utf8Paths::toUtf8(a.filename()) < Utf8Paths::toUtf8(b.filename());
-        });
-        return result;
-    }();
-    return fonts;
-}
+    }
+    std::sort(m_systemFonts.begin(), m_systemFonts.end(), [](const auto& a, const auto& b) {
+        return Utf8Paths::toUtf8(a.filename()) < Utf8Paths::toUtf8(b.filename());
+    });
+    return m_systemFonts;
 }
 
 void UIManager::renderLyricsEditor(AppState& state, AudioEngine& audioEngine) {
-    if (!state.showLyricsEditor) return;
+    if (!state.ui.showLyricsEditor) return;
 
     ImGui::SetNextWindowSize(ImVec2(680.0f, 650.0f), ImGuiCond_FirstUseEver);
-    if (!ImGui::Begin("Media Overlay Layer", &state.showLyricsEditor)) {
+    if (!ImGui::Begin("Media Overlay Layer", &state.ui.showLyricsEditor)) {
         ImGui::End();
         return;
     }
 
-    auto& layer = state.mediaOverlay;
+    auto& layer = state.config.mediaOverlay;
     ImGui::Checkbox("Enable media overlay layer", &layer.enabled);
     ImGui::SameLine();
     ImGui::Checkbox("Top spectrum", &layer.style.showTopSpectrum);
@@ -112,7 +106,7 @@ void UIManager::renderLyricsEditor(AppState& state, AudioEngine& audioEngine) {
         layer.backgroundType = static_cast<OverlayBackgroundType>(mediaType);
     }
     if (layer.backgroundType != OverlayBackgroundType::None) {
-        ImGui::InputText("Media path", layer.backgroundPath, sizeof(layer.backgroundPath));
+        UIHelpers::InputText("Media path", layer.backgroundPath);
         const char* fitModes[] = {"Cover (crop)", "Contain (letterbox)", "Stretch"};
         int fit = static_cast<int>(layer.backgroundFit);
         if (ImGui::Combo("Image scaling", &fit, fitModes, IM_ARRAYSIZE(fitModes))) {
@@ -141,11 +135,11 @@ void UIManager::renderLyricsEditor(AppState& state, AudioEngine& audioEngine) {
                 "Realtime decoding runs on a worker thread; export remains deterministic.");
         }
     }
-    ImGui::InputText("Artist", layer.artist, sizeof(layer.artist));
-    ImGui::InputText("Title", layer.title, sizeof(layer.title));
-    ImGui::InputText("Font file", layer.fontPath, sizeof(layer.fontPath));
-    const auto& fonts = systemFonts();
-    const std::string fontPreview = layer.fontPath[0]
+    UIHelpers::InputText("Artist", layer.artist);
+    UIHelpers::InputText("Title", layer.title);
+    UIHelpers::InputText("Font file", layer.fontPath);
+    const auto& fonts = getSystemFonts();
+    const std::string fontPreview = !layer.fontPath.empty()
         ? Utf8Paths::toUtf8(Utf8Paths::fromUtf8(layer.fontPath).filename())
         : "Choose a system font...";
     if (ImGui::BeginCombo("System fonts", fontPreview.c_str())) {
@@ -154,27 +148,26 @@ void UIManager::renderLyricsEditor(AppState& state, AudioEngine& audioEngine) {
             const std::string fontNameUtf8 = Utf8Paths::toUtf8(font.filename());
             const bool selected = fontPathUtf8 == layer.fontPath;
             if (ImGui::Selectable(fontNameUtf8.c_str(), selected)) {
-                copyText(layer.fontPath, sizeof(layer.fontPath), fontPathUtf8);
+                layer.fontPath = fontPathUtf8;
             }
             if (selected) ImGui::SetItemDefaultFocus();
         }
         ImGui::EndCombo();
     }
-    ImGui::InputText(
-        "Lyrics font file", layer.lyricsFontPath, sizeof(layer.lyricsFontPath));
-    const std::string lyricsFontPreview = layer.lyricsFontPath[0]
+    UIHelpers::InputText("Lyrics font file", layer.lyricsFontPath);
+    const std::string lyricsFontPreview = !layer.lyricsFontPath.empty()
         ? Utf8Paths::toUtf8(Utf8Paths::fromUtf8(layer.lyricsFontPath).filename())
         : "Inherit metadata font";
     if (ImGui::BeginCombo("Lyrics system font", lyricsFontPreview.c_str())) {
-        if (ImGui::Selectable("Inherit metadata font", layer.lyricsFontPath[0] == '\0')) {
-            layer.lyricsFontPath[0] = '\0';
+        if (ImGui::Selectable("Inherit metadata font", layer.lyricsFontPath.empty())) {
+            layer.lyricsFontPath.clear();
         }
         for (const auto& font : fonts) {
             const std::string fontPathUtf8 = Utf8Paths::toUtf8(font);
             const std::string fontNameUtf8 = Utf8Paths::toUtf8(font.filename());
             const bool selected = fontPathUtf8 == layer.lyricsFontPath;
             if (ImGui::Selectable(fontNameUtf8.c_str(), selected)) {
-                copyText(layer.lyricsFontPath, sizeof(layer.lyricsFontPath), fontPathUtf8);
+                layer.lyricsFontPath = fontPathUtf8;
             }
             if (selected) ImGui::SetItemDefaultFocus();
         }
@@ -184,25 +177,32 @@ void UIManager::renderLyricsEditor(AppState& state, AudioEngine& audioEngine) {
     const float playhead = audioEngine.getPosition();
     ImGui::SeparatorText("Live preview");
     ImGui::Text("Playhead  %02d:%05.2f", static_cast<int>(playhead) / 60, std::fmod(playhead, 60.0f));
-    ImGui::InputText("Override", layer.lyricPreview, sizeof(layer.lyricPreview));
+    UIHelpers::InputText("Override", layer.lyricPreview);
     ImGui::SameLine();
-    if (ImGui::Button("Clear override")) layer.lyricPreview[0] = '\0';
+    if (ImGui::Button("Clear override")) layer.lyricPreview.clear();
     const LyricEvent* active = layer.lyrics.activeEvent(playhead);
     ImGui::TextWrapped("Output: %s",
-        layer.lyricPreview[0] ? layer.lyricPreview : (active ? active->text.c_str() : "(no active lyric)"));
+        !layer.lyricPreview.empty()
+            ? layer.lyricPreview.c_str()
+            : (active ? active->text.c_str() : "(no active lyric)"));
 
     if (ImGui::BeginTabBar("LyricsEditorTabs")) {
         if (ImGui::BeginTabItem("Timeline")) {
+            bool timelineEdited = false;
             if (ImGui::Button("Add at playhead")) {
                 layer.lyrics.events.push_back({playhead, playhead + 3.0f, "New lyric"});
                 layer.lyrics.sortAndNormalize();
                 const auto found = std::find_if(
                     layer.lyrics.events.begin(), layer.lyrics.events.end(),
                     [playhead](const LyricEvent& event) { return event.startSeconds == playhead; });
-                m_selectedLyric = static_cast<int>(std::distance(layer.lyrics.events.begin(), found));
+                state.ui.selectedLyricIdx = static_cast<int>(std::distance(layer.lyrics.events.begin(), found));
+                timelineEdited = true;
             }
             ImGui::SameLine();
-            if (ImGui::Button("Sort / normalize")) layer.lyrics.sortAndNormalize();
+            if (ImGui::Button("Sort / normalize")) {
+                layer.lyrics.sortAndNormalize();
+                timelineEdited = true;
+            }
 
             if (ImGui::BeginTable(
                     "LyricEvents", 3,
@@ -223,68 +223,69 @@ void UIManager::renderLyricsEditor(AppState& state, AudioEngine& audioEngine) {
                     ImGui::TableSetColumnIndex(2);
                     ImGui::PushID(i);
                     if (ImGui::Selectable(
-                            event.text.c_str(), m_selectedLyric == i,
+                            event.text.c_str(), state.ui.selectedLyricIdx == i,
                             ImGuiSelectableFlags_SpanAllColumns)) {
-                        m_selectedLyric = i;
+                        state.ui.selectedLyricIdx = i;
                     }
                     ImGui::PopID();
                 }
                 ImGui::EndTable();
             }
 
-            if (m_selectedLyric >= 0 &&
-                m_selectedLyric < static_cast<int>(layer.lyrics.events.size())) {
-                auto& event = layer.lyrics.events[m_selectedLyric];
+            if (state.ui.selectedLyricIdx >= 0 &&
+                state.ui.selectedLyricIdx < static_cast<int>(layer.lyrics.events.size())) {
+                auto& event = layer.lyrics.events[state.ui.selectedLyricIdx];
                 ImGui::SeparatorText("Selected event");
-                ImGui::DragFloat("Start (seconds)", &event.startSeconds, 0.01f, 0.0f, 86400.0f, "%.2f");
+                if (ImGui::DragFloat("Start (seconds)", &event.startSeconds, 0.01f, 0.0f, 86400.0f, "%.2f")) timelineEdited = true;
                 ImGui::SameLine();
-                if (ImGui::Button("Start = playhead")) event.startSeconds = playhead;
-                ImGui::DragFloat("End (seconds)", &event.endSeconds, 0.01f, 0.0f, 86400.0f, "%.2f");
+                if (ImGui::Button("Start = playhead")) { event.startSeconds = playhead; timelineEdited = true; }
+                if (ImGui::DragFloat("End (seconds)", &event.endSeconds, 0.01f, 0.0f, 86400.0f, "%.2f")) timelineEdited = true;
                 ImGui::SameLine();
-                if (ImGui::Button("End = playhead")) event.endSeconds = playhead;
+                if (ImGui::Button("End = playhead")) { event.endSeconds = playhead; timelineEdited = true; }
 
-                char text[1024]{};
-                copyText(text, sizeof(text), event.text);
-                if (ImGui::InputText("Lyric text", text, sizeof(text))) event.text = text;
-                if (ImGui::Button("Preview selected")) copyText(
-                    layer.lyricPreview, sizeof(layer.lyricPreview), event.text);
+                if (UIHelpers::InputText("Lyric text", event.text)) timelineEdited = true;
+                if (ImGui::Button("Preview selected")) layer.lyricPreview = event.text;
                 ImGui::SameLine();
                 if (ImGui::Button("Seek to start")) audioEngine.seekTo(event.startSeconds);
                 ImGui::SameLine();
                 if (ImGui::Button("Delete event")) {
-                    layer.lyrics.events.erase(layer.lyrics.events.begin() + m_selectedLyric);
-                    m_selectedLyric = std::min(
-                        m_selectedLyric, static_cast<int>(layer.lyrics.events.size()) - 1);
+                    layer.lyrics.events.erase(layer.lyrics.events.begin() + state.ui.selectedLyricIdx);
+                    state.ui.selectedLyricIdx = std::min(
+                        state.ui.selectedLyricIdx, static_cast<int>(layer.lyrics.events.size()) - 1);
+                    timelineEdited = true;
                 }
+            }
+            if (timelineEdited) {
+                layer.lyricSource = layer.lyrics.toLrc();
             }
             ImGui::EndTabItem();
         }
 
         if (ImGui::BeginTabItem("Raw LRC")) {
             ImGui::TextUnformatted("Format: [mm:ss.xx] lyric text");
-            ImGui::InputTextMultiline(
-                "##RawLyrics", layer.lyricSource, sizeof(layer.lyricSource),
+            UIHelpers::InputTextMultiline(
+                "##RawLyrics", layer.lyricSource,
                 ImVec2(-1.0f, 285.0f), ImGuiInputTextFlags_AllowTabInput);
             if (ImGui::Button("Parse and apply")) {
                 std::string error;
                 if (layer.lyrics.parseLrc(layer.lyricSource, &error)) {
-                    state.statusMessage = "Lyrics parsed successfully.";
-                    state.statusColor = ImVec4(0.2f, 1.0f, 0.3f, 1.0f);
-                    m_selectedLyric = layer.lyrics.events.empty() ? -1 : 0;
+                    state.ui.statusMessage = "Lyrics parsed successfully.";
+                    state.ui.statusColor = ImVec4(0.2f, 1.0f, 0.3f, 1.0f);
+                    state.ui.selectedLyricIdx = layer.lyrics.events.empty() ? -1 : 0;
                 } else {
-                    state.statusMessage = error;
-                    state.statusColor = ImVec4(1.0f, 0.3f, 0.2f, 1.0f);
+                    state.ui.statusMessage = error;
+                    state.ui.statusColor = ImVec4(1.0f, 0.3f, 0.2f, 1.0f);
                 }
             }
             ImGui::Separator();
-            ImGui::InputText("LRC path", layer.lyricFilePath, sizeof(layer.lyricFilePath));
+            UIHelpers::InputText("LRC path", layer.lyricFilePath);
             if (ImGui::Button("Load LRC")) {
                 std::ifstream input(
                     Utf8Paths::fromUtf8(layer.lyricFilePath), std::ios::binary);
                 std::ostringstream contents;
                 contents << input.rdbuf();
                 if (input) {
-                    copyText(layer.lyricSource, sizeof(layer.lyricSource), contents.str());
+                    layer.lyricSource = contents.str();
                     layer.lyrics.parseLrc(layer.lyricSource);
                 }
             }

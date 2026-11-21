@@ -1,368 +1,422 @@
 #define MINIAUDIO_IMPLEMENTATION
 #include "AudioEngine.hpp"
 #include "Utf8Paths.hpp"
-#include <iostream>
+
 #include <algorithm>
 #include <cmath>
+#include <cstring>
+#include <iostream>
 
-AudioEngine::AudioEngine() {
-    m_stereoBuffer.resize(65536 * 2, 0.0f);
-    m_zBuffer.resize(65536, 1.0f);
-    m_zValidBuffer.resize(65536, 0);
+namespace {
+constexpr float kTwoPi = 6.28318530717958647692f;
+constexpr float kPi = 3.14159265358979323846f;
 }
 
-void AudioEngine::writeXYFrameUnlocked(float x, float y, float z, bool hasZ) {
-    const size_t capacity = m_stereoBuffer.size() / 2;
-    if (capacity == 0) return;
-    const size_t slot = static_cast<size_t>(m_xyFrameCounter % capacity);
-    m_stereoBuffer[slot * 2] = x;
-    m_stereoBuffer[slot * 2 + 1] = y;
-    m_zBuffer[slot] = z;
-    m_zValidBuffer[slot] = hasZ ? 1 : 0;
-    ++m_xyFrameCounter;
-    m_xyValidFrames = std::min(m_xyValidFrames + 1, capacity);
-    m_stereoWritePos = static_cast<size_t>((m_xyFrameCounter % capacity) * 2);
-}
-
-void AudioEngine::markXYDiscontinuity() {
-    std::lock_guard<std::mutex> lock(m_bufferMutex);
-    ++m_xyDiscontinuityGeneration;
-    m_xyValidFrames = 0;
+AudioEngine::AudioEngine()
+    : m_leftRing(std::make_unique<std::atomic<float>[]>(kRingCapacity)),
+      m_rightRing(std::make_unique<std::atomic<float>[]>(kRingCapacity)),
+      m_zRing(std::make_unique<std::atomic<float>[]>(kRingCapacity)),
+      m_zValidRing(std::make_unique<std::atomic<std::uint8_t>[]>(kRingCapacity)) {
+    for (size_t i = 0; i < kRingCapacity; ++i) {
+        m_leftRing[i].store(0.0f, std::memory_order_relaxed);
+        m_rightRing[i].store(0.0f, std::memory_order_relaxed);
+        m_zRing[i].store(1.0f, std::memory_order_relaxed);
+        m_zValidRing[i].store(0u, std::memory_order_relaxed);
+    }
 }
 
 AudioEngine::~AudioEngine() {
     if (m_isDeviceInitialized) {
         ma_device_uninit(&m_device);
+        m_isDeviceInitialized = false;
     }
-    if (m_isDecoderInitialized) {
+    if (m_isDecoderInitialized.exchange(false, std::memory_order_acq_rel)) {
         ma_decoder_uninit(&m_decoder);
     }
 }
 
+void AudioEngine::writeFrameRT(float left, float right, float z, bool hasZ) noexcept {
+    const std::uint64_t idx = m_writeCounter.load(std::memory_order_relaxed);
+    const size_t slot = static_cast<size_t>(idx & kRingMask);
+    m_leftRing[slot].store(left, std::memory_order_relaxed);
+    m_rightRing[slot].store(right, std::memory_order_relaxed);
+    m_zRing[slot].store(z, std::memory_order_relaxed);
+    m_zValidRing[slot].store(hasZ ? 1u : 0u, std::memory_order_relaxed);
+    m_writeCounter.store(idx + 1, std::memory_order_release);
+}
+
+void AudioEngine::markXYDiscontinuity() {
+    m_validStartFrame.store(m_writeCounter.load(std::memory_order_acquire), std::memory_order_release);
+    m_xyDiscontinuityGeneration.fetch_add(1, std::memory_order_release);
+}
+
+float AudioEngine::nextNoiseSampleRT() noexcept {
+    // Fast RT-safe xorshift32 PRNG (no CRT lock or global state)
+    std::uint32_t x = m_noiseState;
+    x ^= x << 13;
+    x ^= x >> 17;
+    x ^= x << 5;
+    m_noiseState = x;
+    return static_cast<float>(static_cast<std::int32_t>(x)) * (1.0f / 2147483648.0f);
+}
+
+void AudioEngine::setOscMusicBuffer(std::vector<float> buffer) {
+    setOscMusicBuffer(std::move(buffer), {});
+}
+
+void AudioEngine::setOscMusicBuffer(std::vector<float> buffer, std::vector<float> z) {
+    auto clip = std::make_unique<OscMusicClip>();
+    clip->stereo = std::move(buffer);
+    clip->z = std::move(z);
+    const OscMusicClip* rawPtr = clip.get();
+    m_ownedOscClips.push_back(std::move(clip));
+
+    m_oscClipGeneration.fetch_add(1, std::memory_order_relaxed);
+    m_activeOscClip.store(rawPtr, std::memory_order_seq_cst);
+
+    // Reclaim older retired clips that the audio thread is not currently reading.
+    const OscMusicClip* inUse = m_audioInUseOscClip.load(std::memory_order_seq_cst);
+    m_ownedOscClips.erase(
+        std::remove_if(m_ownedOscClips.begin(), m_ownedOscClips.end(),
+            [rawPtr, inUse](const std::unique_ptr<OscMusicClip>& entry) {
+                return entry.get() != rawPtr && entry.get() != inUse;
+            }),
+        m_ownedOscClips.end());
+}
+
 void AudioEngine::dataCallback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount) {
-    AudioEngine* pEngine = (AudioEngine*)pDevice->pUserData;
-    if (pEngine == nullptr) return;
+    auto* pEngine = static_cast<AudioEngine*>(pDevice->pUserData);
+    if (pEngine == nullptr || frameCount == 0) return;
 
-    ma_uint32 framesRead = 0;
-    if (pEngine->m_testTone) {
-        if (pOutput && !pInput) { // Only generate test tone if in playback mode
-            float* pOutputF32 = (float*)pOutput;
-            
-            std::lock_guard<std::mutex> lock(pEngine->m_bufferMutex);
-            if (pEngine->m_circularBuffer.size() < 8192) {
-                pEngine->m_circularBuffer.resize(8192, 0.0f);
-            }
-            if (pEngine->m_stereoBuffer.size() < 16384) {
-                pEngine->m_stereoBuffer.resize(16384, 0.0f);
-            }
+    const size_t outChannels = pDevice->playback.channels > 0 ? pDevice->playback.channels : 2;
+    const float sampleRate = pDevice->sampleRate > 0 ? static_cast<float>(pDevice->sampleRate) : 48000.0f;
 
-            for (ma_uint32 i = 0; i < frameCount; ++i) {
-                float sampleLeft = 0.0f;
-                float sampleRight = 0.0f;
-                
-                // Generate left channel
-                float phaseL = pEngine->m_testTonePhase;
-                switch (pEngine->m_testToneType) {
-                    case ToneSine: sampleLeft = std::sin(phaseL); break;
-                    case ToneSquare: sampleLeft = (phaseL < M_PI) ? 1.0f : -1.0f; break;
-                    case ToneSaw: sampleLeft = (phaseL / M_PI) - 1.0f; break;
-                    case ToneTriangle: sampleLeft = (phaseL < M_PI) ? (2.0f * phaseL / M_PI - 1.0f) : (3.0f - 2.0f * phaseL / M_PI); break;
-                    case ToneNoise: sampleLeft = ((float)rand() / RAND_MAX) * 2.0f - 1.0f; break;
-                }
-                sampleLeft *= pEngine->m_testToneVolume;
-                
-                // Generate right channel (different frequency if stereo mode)
-                if (pEngine->m_testToneStereo) {
-                    float phaseR = pEngine->m_testTonePhaseRight;
-                    switch (pEngine->m_testToneType) {
-                        case ToneSine: sampleRight = std::sin(phaseR); break;
-                        case ToneSquare: sampleRight = (phaseR < M_PI) ? 1.0f : -1.0f; break;
-                        case ToneSaw: sampleRight = (phaseR / M_PI) - 1.0f; break;
-                        case ToneTriangle: sampleRight = (phaseR < M_PI) ? (2.0f * phaseR / M_PI - 1.0f) : (3.0f - 2.0f * phaseR / M_PI); break;
-                        case ToneNoise: sampleRight = ((float)rand() / RAND_MAX) * 2.0f - 1.0f; break;
-                    }
-                    sampleRight *= pEngine->m_testToneVolume;
-                } else {
-                    sampleRight = sampleLeft; // Mono mode: duplicate left
-                }
-
-                // Write to output
-                pOutputF32[i * 2 + 0] = sampleLeft;
-                pOutputF32[i * 2 + 1] = sampleRight;
-
-                // Write to circular buffer (Mono mix)
-                float monoSample = (sampleLeft + sampleRight) * 0.5f;
-                pEngine->m_circularBuffer[pEngine->m_writePos] = monoSample;
-                pEngine->m_writePos = (pEngine->m_writePos + 1) % pEngine->m_circularBuffer.size();
-
-                // Write to stereo buffer
-                pEngine->writeXYFrameUnlocked(sampleLeft, sampleRight);
-
-                // Advance phases
-                pEngine->m_testTonePhase += 2.0f * M_PI * pEngine->m_testToneFrequency / 44100.0f;
-                if (pEngine->m_testTonePhase > 2.0f * M_PI) pEngine->m_testTonePhase -= 2.0f * M_PI;
-                
-                if (pEngine->m_testToneStereo) {
-                    pEngine->m_testTonePhaseRight += 2.0f * M_PI * pEngine->m_testToneFrequencyRight / 44100.0f;
-                    if (pEngine->m_testTonePhaseRight > 2.0f * M_PI) pEngine->m_testTonePhaseRight -= 2.0f * M_PI;
-                }
-            }
-            return;
-        }
-    } // Done for test tone
-    else if (pEngine->m_oscMusicMode) {
+    if (pEngine->m_testTone.load(std::memory_order_relaxed)) {
         if (pOutput && !pInput) {
-            float* pOutputF32 = (float*)pOutput;
-            std::lock_guard<std::mutex> lock(pEngine->m_bufferMutex);
-            
-            if (pEngine->m_oscMusicBuffer.empty()) return;
+            auto* pOutputF32 = static_cast<float*>(pOutput);
+            const TestToneType toneType = pEngine->m_testToneType.load(std::memory_order_relaxed);
+            const float freqL = pEngine->m_testToneFrequency.load(std::memory_order_relaxed);
+            const float freqR = pEngine->m_testToneFrequencyRight.load(std::memory_order_relaxed);
+            const bool stereo = pEngine->m_testToneStereo.load(std::memory_order_relaxed);
+            const float volume = pEngine->m_testToneVolume.load(std::memory_order_relaxed);
+
+            auto evalWave = [&](float phase) -> float {
+                switch (toneType) {
+                    case ToneSine: return std::sin(phase);
+                    case ToneSquare: return (phase < kPi) ? 1.0f : -1.0f;
+                    case ToneSaw: return (phase / kPi) - 1.0f;
+                    case ToneTriangle:
+                        return (phase < kPi)
+                            ? (2.0f * phase / kPi - 1.0f)
+                            : (3.0f - 2.0f * phase / kPi);
+                    case ToneNoise: return pEngine->nextNoiseSampleRT();
+                }
+                return 0.0f;
+            };
+
+            const float stepL = kTwoPi * freqL / sampleRate;
+            const float stepR = kTwoPi * freqR / sampleRate;
 
             for (ma_uint32 i = 0; i < frameCount; ++i) {
-                float sampleL = 0.0f;
-                float sampleR = 0.0f;
-                float sampleZ = 1.0f;
-                
-                if (pEngine->m_oscMusicReadPos + 1 < pEngine->m_oscMusicBuffer.size()) {
-                    const size_t frame = pEngine->m_oscMusicReadPos / 2;
-                    sampleL = pEngine->m_oscMusicBuffer[pEngine->m_oscMusicReadPos];
-                    sampleR = pEngine->m_oscMusicBuffer[pEngine->m_oscMusicReadPos + 1];
-                    if (frame < pEngine->m_oscMusicZBuffer.size()) sampleZ = pEngine->m_oscMusicZBuffer[frame];
-                    pEngine->m_oscMusicReadPos += 2;
+                const float sampleLeft = evalWave(pEngine->m_testTonePhase) * volume;
+                const float sampleRight = stereo
+                    ? (evalWave(pEngine->m_testTonePhaseRight) * volume)
+                    : sampleLeft;
+
+                if (outChannels >= 2) {
+                    pOutputF32[i * outChannels + 0] = sampleLeft;
+                    pOutputF32[i * outChannels + 1] = sampleRight;
+                    for (size_t c = 2; c < outChannels; ++c) pOutputF32[i * outChannels + c] = 0.0f;
                 } else {
-                    // Loop or stop? Let's loop for preview
-                    pEngine->m_oscMusicReadPos = 0;
-                    sampleL = pEngine->m_oscMusicBuffer[0];
-                    sampleR = pEngine->m_oscMusicBuffer[1];
-                    if (!pEngine->m_oscMusicZBuffer.empty()) sampleZ = pEngine->m_oscMusicZBuffer[0];
-                    pEngine->m_oscMusicReadPos = 2;
+                    pOutputF32[i] = (sampleLeft + sampleRight) * 0.5f;
                 }
 
-                pOutputF32[i * 2 + 0] = sampleL;
-                pOutputF32[i * 2 + 1] = sampleR;
+                pEngine->writeFrameRT(sampleLeft, sampleRight);
 
-                // Update buffers for visualization
-                if (pEngine->m_circularBuffer.size() < 8192) pEngine->m_circularBuffer.resize(8192, 0.0f);
-                pEngine->m_circularBuffer[pEngine->m_writePos] = (sampleL + sampleR) * 0.5f;
-                pEngine->m_writePos = (pEngine->m_writePos + 1) % pEngine->m_circularBuffer.size();
+                pEngine->m_testTonePhase += stepL;
+                if (pEngine->m_testTonePhase >= kTwoPi) {
+                    pEngine->m_testTonePhase = std::fmod(pEngine->m_testTonePhase, kTwoPi);
+                }
+                if (stereo) {
+                    pEngine->m_testTonePhaseRight += stepR;
+                    if (pEngine->m_testTonePhaseRight >= kTwoPi) {
+                        pEngine->m_testTonePhaseRight = std::fmod(pEngine->m_testTonePhaseRight, kTwoPi);
+                    }
+                }
+            }
+        } else if (pOutput) {
+            std::memset(pOutput, 0, frameCount * outChannels * sizeof(float));
+        }
+        return;
+    }
 
-                if (pEngine->m_stereoBuffer.size() < 16384) pEngine->m_stereoBuffer.resize(16384, 0.0f);
-                pEngine->writeXYFrameUnlocked(sampleL, sampleR, sampleZ, !pEngine->m_oscMusicZBuffer.empty());
+    if (pEngine->m_oscMusicMode.load(std::memory_order_relaxed)) {
+        if (pOutput && !pInput) {
+            auto* pOutputF32 = static_cast<float*>(pOutput);
+
+            // Acquire hazard pointer to the active immutable clip without locking.
+            const OscMusicClip* clip = nullptr;
+            do {
+                clip = pEngine->m_activeOscClip.load(std::memory_order_seq_cst);
+                pEngine->m_audioInUseOscClip.store(clip, std::memory_order_seq_cst);
+            } while (clip != pEngine->m_activeOscClip.load(std::memory_order_seq_cst));
+
+            const std::uint64_t clipGen = pEngine->m_oscClipGeneration.load(std::memory_order_relaxed);
+            if (clipGen != pEngine->m_audioOscClipGen) {
+                pEngine->m_audioOscClipGen = clipGen;
+                pEngine->m_oscMusicReadPos = 0;
+            }
+
+            if (!clip || clip->stereo.size() < 2) {
+                std::memset(pOutput, 0, frameCount * outChannels * sizeof(float));
+                pEngine->m_audioInUseOscClip.store(nullptr, std::memory_order_release);
+                return;
+            }
+
+            const size_t stereoSize = clip->stereo.size() & ~size_t{1};
+            const bool hasZ = !clip->z.empty();
+
+            for (ma_uint32 i = 0; i < frameCount; ++i) {
+                if (pEngine->m_oscMusicReadPos + 1 >= stereoSize) {
+                    pEngine->m_oscMusicReadPos = 0;
+                }
+                const size_t frame = pEngine->m_oscMusicReadPos / 2;
+                const float sampleL = clip->stereo[pEngine->m_oscMusicReadPos];
+                const float sampleR = clip->stereo[pEngine->m_oscMusicReadPos + 1];
+                const float sampleZ = (hasZ && frame < clip->z.size()) ? clip->z[frame] : 1.0f;
+                pEngine->m_oscMusicReadPos += 2;
+
+                if (outChannels >= 2) {
+                    pOutputF32[i * outChannels + 0] = sampleL;
+                    pOutputF32[i * outChannels + 1] = sampleR;
+                    for (size_t c = 2; c < outChannels; ++c) pOutputF32[i * outChannels + c] = 0.0f;
+                } else {
+                    pOutputF32[i] = (sampleL + sampleR) * 0.5f;
+                }
+
+                pEngine->writeFrameRT(sampleL, sampleR, sampleZ, hasZ);
+            }
+
+            pEngine->m_audioInUseOscClip.store(nullptr, std::memory_order_release);
+        } else if (pOutput) {
+            std::memset(pOutput, 0, frameCount * outChannels * sizeof(float));
+        }
+        return;
+    }
+
+    if (pEngine->m_isCaptureMode.load(std::memory_order_acquire)) {
+        if (pOutput) {
+            std::memset(pOutput, 0, frameCount * outChannels * sizeof(float));
+        }
+        if (pInput) {
+            const auto* pInputF32 = static_cast<const float*>(pInput);
+            const size_t inChannels = pDevice->capture.channels;
+            for (ma_uint32 i = 0; i < frameCount; ++i) {
+                float left = 0.0f;
+                float right = 0.0f;
+                if (inChannels >= 2) {
+                    left = pInputF32[i * inChannels + 0];
+                    right = pInputF32[i * inChannels + 1];
+                } else if (inChannels == 1) {
+                    left = right = pInputF32[i];
+                }
+                pEngine->writeFrameRT(left, right);
             }
         }
         return;
     }
-    else if (pEngine->m_isCaptureMode) {
-        if (pInput) {
-            float* pInputF32 = (float*)pInput;
-            size_t channels = pEngine->m_device.capture.channels;
-            // We just need to copy input to our circular buffer
-            // pOutput is usually null in capture-only mode, but miniaudio might expect us to fill it if it's duplex
-            if (pOutput) memset(pOutput, 0, frameCount * channels * sizeof(float));
-            
-            std::lock_guard<std::mutex> lock(pEngine->m_bufferMutex);
-            if (pEngine->m_circularBuffer.size() < 8192) pEngine->m_circularBuffer.resize(8192, 0.0f);
-            
-            if (pEngine->m_stereoBuffer.size() < 16384) pEngine->m_stereoBuffer.resize(16384, 0.0f);
 
-            for (ma_uint32 i = 0; i < frameCount; ++i) {
-                float monoSample = 0;
-                float left = 0;
-                float right = 0;
+    if (pEngine->m_isDecoderInitialized.load(std::memory_order_acquire) && pOutput) {
+        const std::int64_t requestedSeek = pEngine->m_pendingSeekFrame.exchange(-1, std::memory_order_acq_rel);
+        if (requestedSeek >= 0) {
+            ma_decoder_seek_to_pcm_frame(&pEngine->m_decoder, static_cast<ma_uint64>(requestedSeek));
+            pEngine->m_cursorFrames.store(static_cast<std::uint64_t>(requestedSeek), std::memory_order_relaxed);
+        }
 
-                if (channels >= 2) {
-                    left = pInputF32[i * channels + 0];
-                    right = pInputF32[i * channels + 1];
-                    monoSample = (left + right) * 0.5f;
-                } else if (channels == 1) {
-                    left = right = monoSample = pInputF32[i * channels + 0];
+        auto* pOutputF32 = static_cast<float*>(pOutput);
+        const size_t channels = pEngine->m_decoder.outputChannels > 0 ? pEngine->m_decoder.outputChannels : outChannels;
+        ma_uint32 totalRead = 0;
+
+        while (totalRead < frameCount) {
+            ma_uint64 framesRead64 = 0;
+            const ma_result result = ma_decoder_read_pcm_frames(
+                &pEngine->m_decoder,
+                pOutputF32 + totalRead * channels,
+                frameCount - totalRead,
+                &framesRead64);
+            const ma_uint32 chunk = static_cast<ma_uint32>(framesRead64);
+            totalRead += chunk;
+
+            if (result != MA_SUCCESS && result != MA_AT_END) {
+                pEngine->m_decoderErrorCount.fetch_add(1, std::memory_order_relaxed);
+            }
+
+            if (totalRead < frameCount) {
+                if (pEngine->m_loopTrack.load(std::memory_order_relaxed)) {
+                    const ma_result seekRes = ma_decoder_seek_to_pcm_frame(&pEngine->m_decoder, 0);
+                    if (seekRes != MA_SUCCESS || chunk == 0) {
+                        // Avoid infinite spin if file is empty or cannot seek.
+                        std::memset(pOutputF32 + totalRead * channels, 0, (frameCount - totalRead) * channels * sizeof(float));
+                        break;
+                    }
+                } else {
+                    std::memset(pOutputF32 + totalRead * channels, 0, (frameCount - totalRead) * channels * sizeof(float));
+                    pEngine->m_trackEnded.store(true, std::memory_order_release);
+                    break;
                 }
-
-                // Mono for FFT
-                pEngine->m_circularBuffer[pEngine->m_writePos] = monoSample;
-                pEngine->m_writePos = (pEngine->m_writePos + 1) % pEngine->m_circularBuffer.size();
-                
-                // Stereo for XY
-                pEngine->writeXYFrameUnlocked(left, right);
-            }
-            return; // Skip the rest of the callback for capture
-        }
-    } else if (pEngine->m_isDecoderInitialized) {
-        ma_uint64 framesRead64 = 0;
-        ma_result result = ma_decoder_read_pcm_frames(&pEngine->m_decoder, pOutput, frameCount, &framesRead64);
-        framesRead = (ma_uint32)framesRead64;
-        
-        if (result != MA_SUCCESS) {
-            static int errorCounter = 0;
-            if (++errorCounter % 100 == 0) {
-                std::cerr << "Decoder read error: " << result << std::endl;
             }
         }
 
-        if (framesRead < frameCount) {
-            float* pOutputF32 = (float*)pOutput;
-            size_t channels = pEngine->m_decoder.outputChannels;
-            if (pOutput) memset(pOutputF32 + framesRead * channels, 0, (frameCount - framesRead) * channels * sizeof(float));
-            ma_decoder_seek_to_pcm_frame(&pEngine->m_decoder, 0);
-        }
-    } else {
-        if (pOutput) memset(pOutput, 0, frameCount * 2 * sizeof(float));
-    }
-    
-    if (framesRead > 0) {
-        std::lock_guard<std::mutex> lock(pEngine->m_bufferMutex);
-        float* pOutputF32 = (float*)pOutput;
-        size_t channels = pEngine->m_isDecoderInitialized ? pEngine->m_decoder.outputChannels : 2;
-        
-        // Ensure circular buffers are large enough
-        // Mono buffer: 8192 samples
-        if (pEngine->m_circularBuffer.size() < 8192) {
-            pEngine->m_circularBuffer.resize(8192, 0.0f);
-        }
-        // Stereo buffer: 8192 frames * 2 channels = 16384 samples
-        if (pEngine->m_stereoBuffer.size() < 16384) {
-            pEngine->m_stereoBuffer.resize(16384, 0.0f);
+        ma_uint64 cursor = 0;
+        if (ma_decoder_get_cursor_in_pcm_frames(&pEngine->m_decoder, &cursor) == MA_SUCCESS) {
+            pEngine->m_cursorFrames.store(static_cast<std::uint64_t>(cursor), std::memory_order_relaxed);
         }
 
-        for (ma_uint32 i = 0; i < framesRead; ++i) {
+        for (ma_uint32 i = 0; i < totalRead; ++i) {
             float left = 0.0f;
             float right = 0.0f;
-            
             if (channels >= 2) {
                 left = pOutputF32[i * channels + 0];
                 right = pOutputF32[i * channels + 1];
             } else if (channels == 1) {
-                left = right = pOutputF32[i * channels + 0];
+                left = right = pOutputF32[i];
             }
-
-            // Mono Mix for FFT
-            pEngine->m_circularBuffer[pEngine->m_writePos] = (left + right) * 0.5f;
-            pEngine->m_writePos = (pEngine->m_writePos + 1) % pEngine->m_circularBuffer.size();
-
-            // Stereo Interleaved for XY
-            pEngine->writeXYFrameUnlocked(left, right);
+            pEngine->writeFrameRT(left, right);
         }
+        return;
     }
 
-    if (framesRead < frameCount) {
-        ma_decoder_seek_to_pcm_frame(&pEngine->m_decoder, 0);
+    if (pOutput) {
+        std::memset(pOutput, 0, frameCount * outChannels * sizeof(float));
     }
-}
-
-bool AudioEngine::readAudioFrames(size_t offsetFrames, size_t count, std::vector<float>& outBuffer) {
-    if (!m_isDecoderInitialized) return false;
-    
-    // We need to protect the decoder since it's shared with the audio thread (though usually we pause before this)
-    std::lock_guard<std::mutex> lock(m_bufferMutex); 
-
-    ma_result result = ma_decoder_seek_to_pcm_frame(&m_decoder, (ma_uint64)offsetFrames);
-    if (result != MA_SUCCESS) return false;
-
-    size_t channels = m_decoder.outputChannels;
-    outBuffer.resize(count * channels);
-
-    ma_uint64 framesRead = 0;
-    result = ma_decoder_read_pcm_frames(&m_decoder, outBuffer.data(), (ma_uint64)count, &framesRead);
-    
-    if (framesRead < count) {
-        // Zero pad if we hit EOF
-        std::fill(outBuffer.begin() + framesRead * channels, outBuffer.end(), 0.0f);
-    }
-
-    return (result == MA_SUCCESS);
 }
 
 void AudioEngine::getStereoBuffer(std::vector<float>& buffer, size_t frames) {
-    std::lock_guard<std::mutex> lock(m_bufferMutex);
-    const size_t count = std::min(frames, m_xyValidFrames);
-    buffer.resize(count * 2);
-    const std::uint64_t first = m_xyFrameCounter - count;
-    const size_t capacity = m_stereoBuffer.size() / 2;
-    for (size_t i = 0; i < count; ++i) {
-        const size_t slot = static_cast<size_t>((first + i) % capacity);
-        buffer[i * 2] = m_stereoBuffer[slot * 2];
-        buffer[i * 2 + 1] = m_stereoBuffer[slot * 2 + 1];
+    const size_t clampedFrames = std::min(frames, kRingCapacity);
+    for (int attempt = 0; attempt < 3; ++attempt) {
+        const std::uint64_t gen1 = m_xyDiscontinuityGeneration.load(std::memory_order_acquire);
+        const std::uint64_t end = m_writeCounter.load(std::memory_order_acquire);
+        const std::uint64_t validStart = m_validStartFrame.load(std::memory_order_acquire);
+        const std::uint64_t oldest = std::max(validStart, end > kRingCapacity ? end - kRingCapacity : 0);
+        const size_t available = end > oldest ? static_cast<size_t>(end - oldest) : 0;
+        const size_t count = std::min(clampedFrames, available);
+        const std::uint64_t first = end - count;
+
+        buffer.resize(count * 2);
+        for (size_t i = 0; i < count; ++i) {
+            const size_t slot = static_cast<size_t>((first + i) & kRingMask);
+            buffer[i * 2] = m_leftRing[slot].load(std::memory_order_relaxed);
+            buffer[i * 2 + 1] = m_rightRing[slot].load(std::memory_order_relaxed);
+        }
+
+        const std::uint64_t after = m_writeCounter.load(std::memory_order_acquire);
+        const std::uint64_t gen2 = m_xyDiscontinuityGeneration.load(std::memory_order_acquire);
+        if (gen1 == gen2 && (after - first) <= kRingCapacity) return;
     }
 }
 
 XYInputChunk AudioEngine::readXYSince(std::uint64_t cursor, size_t maxFrames) const {
-    std::lock_guard<std::mutex> lock(m_bufferMutex);
     XYInputChunk chunk;
-    chunk.sampleRate = getSampleRate();
-    chunk.discontinuityGeneration = m_xyDiscontinuityGeneration;
-    const std::uint64_t oldest = m_xyFrameCounter - m_xyValidFrames;
-    if (cursor < oldest) {
-        cursor = oldest;
-        chunk.dropped = true;
-    }
-    cursor = std::min(cursor, m_xyFrameCounter);
-    const size_t available = static_cast<size_t>(m_xyFrameCounter - cursor);
-    const size_t count = std::min(available, maxFrames);
-    chunk.firstFrame = m_xyFrameCounter - count;
-    if (available <= maxFrames) {
-        chunk.firstFrame = cursor;
-    } else {
-        chunk.dropped = true;
-    }
-    const size_t capacity = m_stereoBuffer.size() / 2;
-    chunk.samples.reserve(count);
-    for (size_t i = 0; i < count; ++i) {
-        const size_t slot = static_cast<size_t>((chunk.firstFrame + i) % capacity);
-        const bool hasZ = m_zValidBuffer[slot] != 0;
-        chunk.hasZ |= hasZ;
-        chunk.samples.push_back({
-            m_stereoBuffer[slot * 2],
-            m_stereoBuffer[slot * 2 + 1],
-            hasZ ? m_zBuffer[slot] : 1.0f});
+    const size_t clampedMax = std::min(maxFrames, kRingCapacity);
+    for (int attempt = 0; attempt < 3; ++attempt) {
+        chunk = {};
+        chunk.sampleRate = getSampleRate();
+        const std::uint64_t gen1 = m_xyDiscontinuityGeneration.load(std::memory_order_acquire);
+        const std::uint64_t end = m_writeCounter.load(std::memory_order_acquire);
+        const std::uint64_t validStart = m_validStartFrame.load(std::memory_order_acquire);
+        const std::uint64_t oldest = std::max(validStart, end > kRingCapacity ? end - kRingCapacity : 0);
+        chunk.discontinuityGeneration = gen1;
+
+        std::uint64_t startCursor = cursor;
+        if (startCursor < oldest) {
+            startCursor = oldest;
+            chunk.dropped = true;
+        }
+        startCursor = std::min(startCursor, end);
+        const size_t available = static_cast<size_t>(end - startCursor);
+        const size_t count = std::min(available, clampedMax);
+        if (available <= clampedMax) {
+            chunk.firstFrame = startCursor;
+        } else {
+            chunk.firstFrame = end - count;
+            chunk.dropped = true;
+        }
+
+        chunk.samples.reserve(count);
+        for (size_t i = 0; i < count; ++i) {
+            const size_t slot = static_cast<size_t>((chunk.firstFrame + i) & kRingMask);
+            const bool hasZ = m_zValidRing[slot].load(std::memory_order_relaxed) != 0;
+            chunk.hasZ |= hasZ;
+            chunk.samples.push_back({
+                m_leftRing[slot].load(std::memory_order_relaxed),
+                m_rightRing[slot].load(std::memory_order_relaxed),
+                hasZ ? m_zRing[slot].load(std::memory_order_relaxed) : 1.0f});
+        }
+
+        const std::uint64_t after = m_writeCounter.load(std::memory_order_acquire);
+        const std::uint64_t gen2 = m_xyDiscontinuityGeneration.load(std::memory_order_acquire);
+        if (gen1 == gen2 && (after - chunk.firstFrame) <= kRingCapacity) return chunk;
     }
     return chunk;
 }
 
 XYInputChunk AudioEngine::snapshotXY(size_t frames) const {
-    std::lock_guard<std::mutex> lock(m_bufferMutex);
     XYInputChunk chunk;
-    chunk.sampleRate = getSampleRate();
-    chunk.discontinuityGeneration = m_xyDiscontinuityGeneration;
-    const size_t count = std::min(frames, m_xyValidFrames);
-    chunk.firstFrame = m_xyFrameCounter - count;
-    const size_t capacity = m_stereoBuffer.size() / 2;
-    chunk.samples.reserve(count);
-    for (size_t i = 0; i < count; ++i) {
-        const size_t slot = static_cast<size_t>((chunk.firstFrame + i) % capacity);
-        const bool hasZ = m_zValidBuffer[slot] != 0;
-        chunk.hasZ |= hasZ;
-        chunk.samples.push_back({
-            m_stereoBuffer[slot * 2],
-            m_stereoBuffer[slot * 2 + 1],
-            hasZ ? m_zBuffer[slot] : 1.0f});
+    const size_t clampedFrames = std::min(frames, kRingCapacity);
+    for (int attempt = 0; attempt < 3; ++attempt) {
+        chunk = {};
+        chunk.sampleRate = getSampleRate();
+        const std::uint64_t gen1 = m_xyDiscontinuityGeneration.load(std::memory_order_acquire);
+        const std::uint64_t end = m_writeCounter.load(std::memory_order_acquire);
+        const std::uint64_t validStart = m_validStartFrame.load(std::memory_order_acquire);
+        const std::uint64_t oldest = std::max(validStart, end > kRingCapacity ? end - kRingCapacity : 0);
+        const size_t available = end > oldest ? static_cast<size_t>(end - oldest) : 0;
+        const size_t count = std::min(clampedFrames, available);
+        chunk.discontinuityGeneration = gen1;
+        chunk.firstFrame = end - count;
+
+        chunk.samples.reserve(count);
+        for (size_t i = 0; i < count; ++i) {
+            const size_t slot = static_cast<size_t>((chunk.firstFrame + i) & kRingMask);
+            const bool hasZ = m_zValidRing[slot].load(std::memory_order_relaxed) != 0;
+            chunk.hasZ |= hasZ;
+            chunk.samples.push_back({
+                m_leftRing[slot].load(std::memory_order_relaxed),
+                m_rightRing[slot].load(std::memory_order_relaxed),
+                hasZ ? m_zRing[slot].load(std::memory_order_relaxed) : 1.0f});
+        }
+
+        const std::uint64_t after = m_writeCounter.load(std::memory_order_acquire);
+        const std::uint64_t gen2 = m_xyDiscontinuityGeneration.load(std::memory_order_acquire);
+        if (gen1 == gen2 && (after - chunk.firstFrame) <= kRingCapacity) return chunk;
     }
     return chunk;
 }
 
 std::uint64_t AudioEngine::latestXYFrame() const {
-    std::lock_guard<std::mutex> lock(m_bufferMutex);
-    return m_xyFrameCounter;
+    return m_writeCounter.load(std::memory_order_acquire);
 }
 
 void AudioEngine::resetDevice() {
-    stop(); // Stop playback
+    stop();
     if (m_isDeviceInitialized) {
         ma_device_uninit(&m_device);
         m_isDeviceInitialized = false;
     }
-    m_isCaptureMode = false;
-    m_isPlaying = false;
-    m_oscMusicMode = false;
-    m_testTone = false;
+    m_isCaptureMode.store(false, std::memory_order_release);
+    m_isPlaying.store(false, std::memory_order_release);
+    m_oscMusicMode.store(false, std::memory_order_release);
+    m_testTone.store(false, std::memory_order_release);
+    m_trackEnded.store(false, std::memory_order_release);
+    m_pendingSeekFrame.store(-1, std::memory_order_release);
     markXYDiscontinuity();
 }
 
 bool AudioEngine::loadFile(const std::string& filePath) {
     if (filePath.empty()) return false;
-    m_isPlaying = false;
+    m_isPlaying.store(false, std::memory_order_release);
     std::cout << "Attempting to load file: " << filePath << std::endl;
 
-    // Keep application paths as UTF-8. Windows' narrow fopen/decoder entry
-    // points use the active ANSI code page and corrupt Japanese filenames.
     FILE* f = nullptr;
 #ifdef _WIN32
     const std::wstring widePath = Utf8Paths::toWide(filePath);
@@ -374,17 +428,17 @@ bool AudioEngine::loadFile(const std::string& filePath) {
         std::cerr << "Failed to open file for reading: " << filePath << std::endl;
         return false;
     }
-    fseek(f, 0, SEEK_END);
-    long fileSize = ftell(f);
     fclose(f);
-    std::cout << "File size: " << fileSize << " bytes" << std::endl;
 
-    resetDevice(); // Clean up previous device
-    
-    if (m_isDecoderInitialized) {
+    resetDevice();
+
+    if (m_isDecoderInitialized.exchange(false, std::memory_order_acq_rel)) {
         ma_decoder_uninit(&m_decoder);
-        m_isDecoderInitialized = false;
     }
+    m_durationFrames.store(0, std::memory_order_relaxed);
+    m_cursorFrames.store(0, std::memory_order_relaxed);
+    m_decoderSampleRate.store(0, std::memory_order_relaxed);
+    m_decoderChannels.store(0, std::memory_order_relaxed);
 
     ma_decoder_config decoderConfig = ma_decoder_config_init(ma_format_f32, 0, 0);
     ma_result result = MA_ERROR;
@@ -397,41 +451,48 @@ bool AudioEngine::loadFile(const std::string& filePath) {
         std::cerr << "Failed to load audio file: " << filePath << " (Error: " << result << ")" << std::endl;
         return false;
     }
-    m_isDecoderInitialized = true;
+
+    ma_uint64 lengthFrames = 0;
+    if (ma_decoder_get_length_in_pcm_frames(&m_decoder, &lengthFrames) == MA_SUCCESS) {
+        m_durationFrames.store(static_cast<std::uint64_t>(lengthFrames), std::memory_order_relaxed);
+    }
+    m_decoderSampleRate.store(m_decoder.outputSampleRate, std::memory_order_relaxed);
+    m_decoderChannels.store(m_decoder.outputChannels, std::memory_order_relaxed);
+    m_cursorFrames.store(0, std::memory_order_relaxed);
+    m_isDecoderInitialized.store(true, std::memory_order_release);
 
     ma_device_config deviceConfig = ma_device_config_init(ma_device_type_playback);
     deviceConfig.playback.pDeviceID = m_useSpecificDevice ? &m_selectedDeviceID : NULL;
-    deviceConfig.playback.format   = ma_format_f32;
+    deviceConfig.playback.format = ma_format_f32;
     deviceConfig.playback.channels = m_decoder.outputChannels;
-    deviceConfig.sampleRate        = m_decoder.outputSampleRate;
-    deviceConfig.dataCallback      = dataCallback;
-    deviceConfig.pUserData         = this;
+    deviceConfig.sampleRate = m_decoder.outputSampleRate;
+    deviceConfig.dataCallback = dataCallback;
+    deviceConfig.pUserData = this;
 
     result = ma_device_init(NULL, &deviceConfig, &m_device);
     if (result != MA_SUCCESS) {
         std::cerr << "Failed to open playback device. (Error: " << result << ")" << std::endl;
+        m_isDecoderInitialized.store(false, std::memory_order_release);
         ma_decoder_uninit(&m_decoder);
-        m_isDecoderInitialized = false;
         return false;
     }
     m_isDeviceInitialized = true;
-    m_isCaptureMode = false;
-    m_currentSampleRate = m_decoder.outputSampleRate;
+    m_isCaptureMode.store(false, std::memory_order_release);
+    m_currentSampleRate.store(m_decoder.outputSampleRate, std::memory_order_release);
     std::cout << "Audio device initialized: " << m_device.playback.name << std::endl;
-    // ...
     return true;
 }
 
 bool AudioEngine::startCapture(const ma_device_id* pID, ma_device_type type) {
-    resetDevice(); // Clean up previous device (playback or capture)
+    resetDevice();
 
     ma_device_config deviceConfig = ma_device_config_init(type);
     if (type == ma_device_type_loopback) {
-        deviceConfig.playback.pDeviceID = (ma_device_id*)pID;
+        deviceConfig.playback.pDeviceID = const_cast<ma_device_id*>(pID);
     } else {
-        deviceConfig.capture.pDeviceID = (ma_device_id*)pID;
+        deviceConfig.capture.pDeviceID = const_cast<ma_device_id*>(pID);
     }
-    
+
     deviceConfig.capture.format = ma_format_f32;
     deviceConfig.capture.channels = 2;
     deviceConfig.sampleRate = 48000;
@@ -443,34 +504,44 @@ bool AudioEngine::startCapture(const ma_device_id* pID, ma_device_type type) {
         return false;
     }
 
+    // Publish capture mode & sample rate BEFORE starting the audio callback thread!
+    m_isDeviceInitialized = true;
+    m_currentSampleRate.store(m_device.sampleRate > 0 ? m_device.sampleRate : 48000, std::memory_order_release);
+    m_isCaptureMode.store(true, std::memory_order_release);
+
     if (ma_device_start(&m_device) != MA_SUCCESS) {
         std::cerr << "Failed to start capture device" << std::endl;
+        m_isCaptureMode.store(false, std::memory_order_release);
         ma_device_uninit(&m_device);
+        m_isDeviceInitialized = false;
         return false;
     }
 
-    m_isDeviceInitialized = true;
-    m_isCaptureMode = true;
-    m_isPlaying = true;
-    m_currentSampleRate = 48000;
+    m_isPlaying.store(true, std::memory_order_release);
     return true;
 }
 
 bool AudioEngine::initTestTone() {
     stop();
-    // Initialize standard playback device if not already set up
-    // But if we are in Capture Mode, we MUST reset, even if device is initialized
-    if (m_isDeviceInitialized && !m_isCaptureMode) return true;
-    
+    // Re-initialize if device is uninitialized, in capture mode, or mismatched channel/sample-rate
+    if (m_isDeviceInitialized &&
+        !m_isCaptureMode.load(std::memory_order_acquire) &&
+        m_device.playback.channels == 2 &&
+        m_device.sampleRate == 44100) {
+        m_oscMusicMode.store(false, std::memory_order_release);
+        m_testTone.store(true, std::memory_order_release);
+        return true;
+    }
+
     resetDevice();
 
     ma_device_config deviceConfig = ma_device_config_init(ma_device_type_playback);
     deviceConfig.playback.pDeviceID = m_useSpecificDevice ? &m_selectedDeviceID : NULL;
-    deviceConfig.playback.format   = ma_format_f32;
+    deviceConfig.playback.format = ma_format_f32;
     deviceConfig.playback.channels = 2;
-    deviceConfig.sampleRate        = 44100;
-    deviceConfig.dataCallback      = dataCallback;
-    deviceConfig.pUserData         = this;
+    deviceConfig.sampleRate = 44100;
+    deviceConfig.dataCallback = dataCallback;
+    deviceConfig.pUserData = this;
 
     ma_result result = ma_device_init(NULL, &deviceConfig, &m_device);
     if (result != MA_SUCCESS) {
@@ -478,45 +549,46 @@ bool AudioEngine::initTestTone() {
         return false;
     }
     m_isDeviceInitialized = true;
-    m_isCaptureMode = false;
-    m_testTone = true;
-    m_currentSampleRate = 44100;
+    m_isCaptureMode.store(false, std::memory_order_release);
+    m_testTone.store(true, std::memory_order_release);
+    m_currentSampleRate.store(m_device.sampleRate > 0 ? m_device.sampleRate : 44100, std::memory_order_release);
     return true;
 }
 
 bool AudioEngine::initOscMusic(int sampleRate) {
     stop();
-    // Even if initialized, we want high sample rate, so re-init if needed
     resetDevice();
 
+    const ma_uint32 clampedRate = static_cast<ma_uint32>(std::clamp(sampleRate, 8000, 384000));
     ma_device_config deviceConfig = ma_device_config_init(ma_device_type_playback);
     deviceConfig.playback.pDeviceID = m_useSpecificDevice ? &m_selectedDeviceID : NULL;
-    deviceConfig.playback.format   = ma_format_f32;
+    deviceConfig.playback.format = ma_format_f32;
     deviceConfig.playback.channels = 2;
-    deviceConfig.sampleRate        = sampleRate;
-    deviceConfig.dataCallback      = dataCallback;
-    deviceConfig.pUserData         = this;
+    deviceConfig.sampleRate = clampedRate;
+    deviceConfig.dataCallback = dataCallback;
+    deviceConfig.pUserData = this;
 
     ma_result result = ma_device_init(NULL, &deviceConfig, &m_device);
     if (result != MA_SUCCESS) {
-        std::cerr << "Failed to init device for OscMusic at " << sampleRate << "Hz. Error: " << result << std::endl;
+        std::cerr << "Failed to init device for OscMusic at " << clampedRate << "Hz. Error: " << result << std::endl;
         return false;
     }
     m_isDeviceInitialized = true;
-    m_isCaptureMode = false;
-    m_currentSampleRate = static_cast<ma_uint32>(sampleRate);
-    std::cout << "OscMusic initialized at " << sampleRate << "Hz" << std::endl;
+    m_isCaptureMode.store(false, std::memory_order_release);
+    m_currentSampleRate.store(m_device.sampleRate > 0 ? m_device.sampleRate : clampedRate, std::memory_order_release);
+    std::cout << "OscMusic initialized at " << m_currentSampleRate.load(std::memory_order_relaxed) << "Hz" << std::endl;
     return true;
 }
 
 void AudioEngine::play() {
     if (m_isDeviceInitialized) {
+        m_trackEnded.store(false, std::memory_order_release);
         ma_result result = ma_device_start(&m_device);
         if (result != MA_SUCCESS) {
             std::cerr << "Failed to start playback device. (Error: " << result << ")" << std::endl;
-            m_isPlaying = false;
+            m_isPlaying.store(false, std::memory_order_release);
         } else {
-            m_isPlaying = true;
+            m_isPlaying.store(true, std::memory_order_release);
             std::cout << "Playback started." << std::endl;
         }
     }
@@ -525,7 +597,7 @@ void AudioEngine::play() {
 void AudioEngine::pause() {
     if (m_isDeviceInitialized) {
         ma_device_stop(&m_device);
-        m_isPlaying = false;
+        m_isPlaying.store(false, std::memory_order_release);
     }
 }
 
@@ -533,86 +605,113 @@ void AudioEngine::stop() {
     if (m_isDeviceInitialized) {
         ma_device_stop(&m_device);
     }
-    m_isPlaying = false;
+    m_isPlaying.store(false, std::memory_order_release);
 }
 
 void AudioEngine::stopCapture() {
-    if (m_isCaptureMode) {
+    if (m_isCaptureMode.load(std::memory_order_acquire)) {
         ma_device_stop(&m_device);
         ma_device_uninit(&m_device);
         m_isDeviceInitialized = false;
-        m_isCaptureMode = false;
-        m_isPlaying = false;
+        m_isCaptureMode.store(false, std::memory_order_release);
+        m_isPlaying.store(false, std::memory_order_release);
     }
 }
 
 float AudioEngine::getPosition() const {
-    if (!m_isDecoderInitialized) return 0;
-    ma_uint64 cursor;
-    ma_decoder_get_cursor_in_pcm_frames((ma_decoder*)&m_decoder, &cursor);
-    return (float)cursor / m_decoder.outputSampleRate;
+    if (!m_isDecoderInitialized.load(std::memory_order_acquire)) return 0.0f;
+    const ma_uint32 rate = m_decoderSampleRate.load(std::memory_order_relaxed);
+    if (rate == 0) return 0.0f;
+    return static_cast<float>(m_cursorFrames.load(std::memory_order_relaxed)) / static_cast<float>(rate);
 }
+
 void AudioEngine::seekTo(float seconds) {
-    if (!m_isDecoderInitialized) return;
-    ma_uint64 frameIndex = (ma_uint64)(seconds * m_decoder.outputSampleRate);
-    ma_decoder_seek_to_pcm_frame(&m_decoder, frameIndex);
+    if (!m_isDecoderInitialized.load(std::memory_order_acquire)) return;
+    const ma_uint32 rate = m_decoderSampleRate.load(std::memory_order_relaxed);
+    if (rate == 0) return;
+
+    const float clampedSeconds = std::max(seconds, 0.0f);
+    std::uint64_t frameIndex = static_cast<std::uint64_t>(clampedSeconds * static_cast<float>(rate));
+    const std::uint64_t totalFrames = m_durationFrames.load(std::memory_order_relaxed);
+    if (totalFrames > 0) {
+        frameIndex = std::min(frameIndex, totalFrames);
+    }
+
+    m_trackEnded.store(false, std::memory_order_release);
+    m_cursorFrames.store(frameIndex, std::memory_order_relaxed);
+    if (m_isPlaying.load(std::memory_order_acquire)) {
+        // Defer decoder seek to the audio callback so only the audio thread touches m_decoder.
+        m_pendingSeekFrame.store(static_cast<std::int64_t>(frameIndex), std::memory_order_release);
+    } else {
+        m_pendingSeekFrame.store(-1, std::memory_order_release);
+        ma_decoder_seek_to_pcm_frame(&m_decoder, static_cast<ma_uint64>(frameIndex));
+    }
     markXYDiscontinuity();
 }
 
 float AudioEngine::getDuration() const {
-    if (!m_isDecoderInitialized) return 0.0f;
-    ma_uint64 length;
-    ma_decoder_get_length_in_pcm_frames((ma_decoder*)&m_decoder, &length);
-    return (float)length / m_decoder.outputSampleRate;
+    if (!m_isDecoderInitialized.load(std::memory_order_acquire)) return 0.0f;
+    const ma_uint32 rate = m_decoderSampleRate.load(std::memory_order_relaxed);
+    if (rate == 0) return 0.0f;
+    return static_cast<float>(m_durationFrames.load(std::memory_order_relaxed)) / static_cast<float>(rate);
 }
 
 ma_uint32 AudioEngine::getSampleRate() const {
-    return m_currentSampleRate;
+    return m_currentSampleRate.load(std::memory_order_relaxed);
 }
 
 size_t AudioEngine::getChannels() const {
-    if (!m_isDecoderInitialized) return 0;
-    return m_decoder.outputChannels;
+    if (!m_isDecoderInitialized.load(std::memory_order_acquire)) return 0;
+    return static_cast<size_t>(m_decoderChannels.load(std::memory_order_relaxed));
 }
 
 void AudioEngine::getBuffer(std::vector<float>& buffer, size_t size) {
-    std::lock_guard<std::mutex> lock(m_bufferMutex);
-    if (m_circularBuffer.empty()) return;
-
-    buffer.resize(size);
-    size_t readPos = (m_writePos + m_circularBuffer.size() - size) % m_circularBuffer.size();
-    for (size_t i = 0; i < size; ++i) {
-        buffer[i] = m_circularBuffer[(readPos + i) % m_circularBuffer.size()];
-    }
+    getChannelBuffer(buffer, size, 0);
 }
 
 void AudioEngine::getChannelBuffer(std::vector<float>& buffer, size_t size, int channel) {
-    std::lock_guard<std::mutex> lock(m_bufferMutex);
-    
-    // channel: 0 = Mixed, 1 = Left, 2 = Right
-    if (channel == 0) {
-        // Mixed - use mono buffer
-        if (m_circularBuffer.empty()) return;
-        buffer.resize(size);
-        size_t readPos = (m_writePos + m_circularBuffer.size() - size) % m_circularBuffer.size();
-        for (size_t i = 0; i < size; ++i) {
-            buffer[i] = m_circularBuffer[(readPos + i) % m_circularBuffer.size()];
+    const size_t clampedSize = std::min(size, kRingCapacity);
+    buffer.assign(clampedSize, 0.0f);
+    if (clampedSize == 0) return;
+
+    for (int attempt = 0; attempt < 3; ++attempt) {
+        const std::uint64_t gen1 = m_xyDiscontinuityGeneration.load(std::memory_order_acquire);
+        const std::uint64_t end = m_writeCounter.load(std::memory_order_acquire);
+        const std::uint64_t validStart = m_validStartFrame.load(std::memory_order_acquire);
+        const std::uint64_t oldest = std::max(validStart, end > kRingCapacity ? end - kRingCapacity : 0);
+        const size_t available = end > oldest ? static_cast<size_t>(end - oldest) : 0;
+        if (available == 0) return;
+
+        const size_t count = std::min(clampedSize, available);
+        const size_t dstOffset = clampedSize - count;
+        const std::uint64_t first = end - count;
+
+        if (dstOffset > 0) {
+            std::fill_n(buffer.begin(), dstOffset, 0.0f);
         }
-    } else {
-        // Left (1) or Right (2) - extract from stereo buffer
-        if (m_stereoBuffer.empty()) return;
-        buffer.resize(size);
-        
-        // Calculate read position in stereo buffer (interleaved samples)
-        size_t stereoSamples = size * 2;
-        size_t bufferSize = m_stereoBuffer.size();
-        size_t readPos = (m_stereoWritePos + bufferSize - stereoSamples) % bufferSize;
-        
-        // Extract channel: Left = even indices (0,2,4...), Right = odd indices (1,3,5...)
-        int offset = (channel == 1) ? 0 : 1;
-        for (size_t i = 0; i < size; ++i) {
-            buffer[i] = m_stereoBuffer[(readPos + i * 2 + offset) % bufferSize];
+
+        if (channel == 1) {
+            for (size_t i = 0; i < count; ++i) {
+                const size_t slot = static_cast<size_t>((first + i) & kRingMask);
+                buffer[dstOffset + i] = m_leftRing[slot].load(std::memory_order_relaxed);
+            }
+        } else if (channel == 2) {
+            for (size_t i = 0; i < count; ++i) {
+                const size_t slot = static_cast<size_t>((first + i) & kRingMask);
+                buffer[dstOffset + i] = m_rightRing[slot].load(std::memory_order_relaxed);
+            }
+        } else {
+            for (size_t i = 0; i < count; ++i) {
+                const size_t slot = static_cast<size_t>((first + i) & kRingMask);
+                buffer[dstOffset + i] =
+                    (m_leftRing[slot].load(std::memory_order_relaxed) +
+                     m_rightRing[slot].load(std::memory_order_relaxed)) * 0.5f;
+            }
         }
+
+        const std::uint64_t after = m_writeCounter.load(std::memory_order_acquire);
+        const std::uint64_t gen2 = m_xyDiscontinuityGeneration.load(std::memory_order_acquire);
+        if (gen1 == gen2 && (after - first) <= kRingCapacity) return;
     }
 }
 
@@ -621,10 +720,10 @@ std::vector<AudioEngine::DeviceInfo> AudioEngine::getAvailableDevices(bool captu
     ma_context context;
     if (ma_context_init(NULL, 0, NULL, &context) != MA_SUCCESS) return devices;
 
-    ma_device_info* pPlaybackInfos;
-    ma_uint32 playbackCount;
-    ma_device_info* pCaptureInfos;
-    ma_uint32 captureCount;
+    ma_device_info* pPlaybackInfos = nullptr;
+    ma_uint32 playbackCount = 0;
+    ma_device_info* pCaptureInfos = nullptr;
+    ma_uint32 captureCount = 0;
 
     if (ma_context_get_devices(&context, &pPlaybackInfos, &playbackCount, &pCaptureInfos, &captureCount) != MA_SUCCESS) {
         ma_context_uninit(&context);
@@ -636,7 +735,6 @@ std::vector<AudioEngine::DeviceInfo> AudioEngine::getAvailableDevices(bool captu
             devices.push_back({ pCaptureInfos[i].id, pCaptureInfos[i].name, (bool)pCaptureInfos[i].isDefault, ma_device_type_capture });
         }
 #ifdef _WIN32
-        // On Windows, also include playback devices as loopback capture sources
         for (ma_uint32 i = 0; i < playbackCount; ++i) {
             std::string name = "[Loopback] " + std::string(pPlaybackInfos[i].name);
             devices.push_back({ pPlaybackInfos[i].id, name, false, ma_device_type_loopback });
@@ -658,5 +756,23 @@ void AudioEngine::setDevice(const ma_device_id* pID) {
         m_useSpecificDevice = true;
     } else {
         m_useSpecificDevice = false;
+    }
+}
+
+void AudioEngine::pushSyntheticFrames(size_t frameCount, double& phase, ma_uint32 sampleRate) {
+    m_currentSampleRate.store(sampleRate, std::memory_order_relaxed);
+    const double dt = 1.0 / static_cast<double>(std::max<ma_uint32>(sampleRate, 1));
+    for (size_t i = 0; i < frameCount; ++i) {
+        const double t = phase;
+        const float left = static_cast<float>(
+            0.55 * std::sin(2.0 * 3.14159265358979323846 * 110.0 * t) +
+            0.25 * std::sin(2.0 * 3.14159265358979323846 * 440.0 * t) +
+            0.15 * std::sin(2.0 * 3.14159265358979323846 * 2200.0 * t));
+        const float right = static_cast<float>(
+            0.55 * std::cos(2.0 * 3.14159265358979323846 * 110.0 * t) +
+            0.25 * std::sin(2.0 * 3.14159265358979323846 * 660.0 * t) +
+            0.15 * std::cos(2.0 * 3.14159265358979323846 * 3300.0 * t));
+        writeFrameRT(left, right);
+        phase += dt;
     }
 }
