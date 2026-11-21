@@ -28,7 +28,10 @@ public:
         float autoGain = 1.0f;
         float lastX = 0.0f;
         float lastY = 0.0f;
+        float lastIntensity = 1.0f;
         bool hasLast = false;
+        std::uint64_t lastTriggerFrame = 0;
+        bool hasTriggerFrame = false;
         XYTraceBatch heldSweep;
         XYMeasurements cachedMeasurements;
         int framesSinceMeasure = 0;
@@ -52,5 +55,7 @@ private:
     std::vector<float> m_conditionedX;
     std::vector<float> m_conditionedY;
     std::vector<PreparedSample> m_prepared;
-    std::vector<size_t> m_crossingsScratch;
+    std::vector<PreparedSample> m_triggerScratch;
+    std::vector<XYTracePoint> m_oversampleScratch;
+    std::vector<float> m_crossingsScratch;
 };

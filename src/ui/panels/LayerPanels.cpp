@@ -76,33 +76,44 @@ void UIManager::renderLayerEditor(AppState& state) {
         ImGui::Begin("Layer Editor", &state.ui.showLayerEditor);
 
         UIHelpers::InputText("Layer Name", layer.name);
-
         ImGui::ColorEdit4("Color", layer.color);
-        ImGui::SliderFloat("Gain", &layer.config.gain, 0.1f, 200.0f);
-        ImGui::SliderFloat("Falloff (Decay)", &layer.config.falloff, 0.5f, 0.999f);
-        ImGui::SliderFloat("Attack", &layer.config.attack, 0.0f, 1.0f);
-        ImGui::SliderInt("Smoothing (Radius)", &layer.config.smoothing, 0, 10);
-        ImGui::SliderFloat("Spectrum Power (Log)", &layer.config.spectrumPower, 0.1f, 3.0f);
-        ImGui::SliderFloat("Bar Height", &layer.barHeight, 0.01f, 2.0f);
-
-        ImGui::Separator();
-        ImGui::Text("Frequency Range");
-        ImGui::SliderFloat("Min Freq", &layer.config.minFreq, 20.0f, 20000.0f);
-        ImGui::SliderFloat("Max Freq", &layer.config.maxFreq, 20.0f, 20000.0f);
-        if (layer.config.maxFreq <= layer.config.minFreq) {
-            layer.config.maxFreq = std::min(20000.0f, layer.config.minFreq + 10.0f);
-        }
-
-        ImGui::Separator();
-        ImGui::Text("Visuals");
-        ImGui::Checkbox("Mirror Mode", &layer.mirrored);
 
         const char* shapes[] = { "Bars", "Lines", "Dots", "Waveform", "Oscilloscope XY", "Curve" };
         if (layer.shape == VisualizerShape::OscilloscopeXY_Clean) {
             layer.shape = VisualizerShape::OscilloscopeXY;
         }
         int shapeIdx = std::clamp(static_cast<int>(layer.shape), 0, IM_ARRAYSIZE(shapes) - 1);
-        if (ImGui::Combo("Shape", &shapeIdx, shapes, IM_ARRAYSIZE(shapes))) layer.shape = static_cast<VisualizerShape>(shapeIdx);
+        if (ImGui::Combo("Shape", &shapeIdx, shapes, IM_ARRAYSIZE(shapes))) {
+            layer.shape = static_cast<VisualizerShape>(shapeIdx);
+        }
+
+        if (layer.shape != VisualizerShape::OscilloscopeXY) {
+            ImGui::Separator();
+            if (layer.shape != VisualizerShape::Waveform) {
+                ImGui::SliderFloat("Gain", &layer.config.gain, 0.1f, 200.0f);
+                ImGui::SliderFloat("Falloff (Decay)", &layer.config.falloff, 0.5f, 0.999f);
+                ImGui::SliderFloat("Attack", &layer.config.attack, 0.0f, 1.0f);
+                ImGui::SliderInt("Smoothing (Radius)", &layer.config.smoothing, 0, 10);
+                ImGui::SliderFloat("Spectrum Power (Log)", &layer.config.spectrumPower, 0.1f, 3.0f);
+            }
+            ImGui::SliderFloat("Bar Height", &layer.barHeight, 0.01f, 2.0f);
+
+            if (layer.shape != VisualizerShape::Waveform) {
+                ImGui::Separator();
+                ImGui::Text("Frequency Range");
+                ImGui::SliderFloat("Min Freq", &layer.config.minFreq, 20.0f, 20000.0f);
+                ImGui::SliderFloat("Max Freq", &layer.config.maxFreq, 20.0f, 20000.0f);
+                if (layer.config.maxFreq <= layer.config.minFreq) {
+                    layer.config.maxFreq = std::min(20000.0f, layer.config.minFreq + 10.0f);
+                }
+            }
+
+            ImGui::Separator();
+            ImGui::Text("Visuals");
+            ImGui::Checkbox("Mirror Mode", &layer.mirrored);
+        } else {
+            ImGui::Separator();
+        }
 
         if (layer.shape == VisualizerShape::Bars) ImGui::SliderFloat("Corner Radius", &layer.cornerRadius, 0.0f, 1.0f);
 
@@ -116,25 +127,39 @@ void UIManager::renderLayerEditor(AppState& state) {
                     if (xy.profile == ScopeProfile::Analog) {
                         xy.traceWidth = 1.35f;
                         xy.bloom = 0.45f;
+                        xy.beamHeadSize = 2.5f;
                         xy.beamIntensity = 0.85f;
-                        xy.dwellEffect = 0.35f;
+                        xy.dwellEffect = 0.40f;
+                        xy.densityEffect = 0.15f;
+                        xy.oversampling = 2;
                         xy.autoGain = false;
                         state.config.oscilloscopeDisplay.profile = ScopeProfile::Analog;
                         state.config.oscilloscopeDisplay.graticuleEnabled = true;
+                        state.config.oscilloscopeDisplay.decayColorShift = 0.08f;
                     } else if (xy.profile == ScopeProfile::Stylized) {
-                        xy.traceWidth = 2.5f;
-                        xy.bloom = 1.8f;
-                        xy.beamIntensity = 1.5f;
-                        xy.dwellEffect = 0.15f;
+                        xy.traceWidth = 2.4f;
+                        xy.bloom = 1.6f;
+                        xy.beamHeadSize = 0.0f;
+                        xy.beamIntensity = 1.4f;
+                        xy.dwellEffect = 0.20f;
+                        xy.densityEffect = 0.25f;
+                        xy.oversampling = 2;
                         xy.autoGain = true;
                         state.config.oscilloscopeDisplay.profile = ScopeProfile::Stylized;
+                        state.config.oscilloscopeDisplay.decayColorShift = 0.12f;
                     }
                 }
                 ImGui::SliderFloat("Acquisition Window", &xy.windowScale, 0.2f, 4.0f);
             }
-            if (ImGui::CollapsingHeader("Acquisition")) {
+            if (ImGui::CollapsingHeader("Acquisition", ImGuiTreeNodeFlags_DefaultOpen)) {
                 ImGui::Checkbox("Persistence", &xy.persistence);
                 ImGui::Checkbox("Automatic Gain", &xy.autoGain);
+                const char* oversampleModes[] = {"Off (1x)", "2x Cubic", "4x Cubic"};
+                int osIdx = xy.oversampling >= 4 ? 2 : (xy.oversampling >= 2 ? 1 : 0);
+                if (ImGui::Combo("Curve Oversampling", &osIdx, oversampleModes, IM_ARRAYSIZE(oversampleModes))) {
+                    xy.oversampling = (osIdx == 2) ? 4 : (osIdx == 1 ? 2 : 1);
+                }
+                ImGui::SameLine(); HelpMarker("Centripetal Catmull-Rom reconstruction smooths 44.1/48 kHz curves without rounding blanked vector jumps.");
             }
             if (ImGui::CollapsingHeader("Trigger")) {
                 const char* modes[] = {"Auto", "Normal"};
@@ -148,6 +173,8 @@ void UIManager::renderLayerEditor(AppState& state) {
                 if (ImGui::Combo("Edge", &edge, edges, 2)) xy.triggerEdge = static_cast<TriggerEdge>(edge);
                 ImGui::SliderFloat("Level", &xy.triggerLevel, -1.0f, 1.0f);
                 ImGui::SliderFloat("Hysteresis", &xy.triggerHysteresis, 0.0f, 0.25f);
+                ImGui::SliderFloat("Holdoff (ms)", &xy.triggerHoldoffMs, 0.0f, 250.0f, "%.1f");
+                ImGui::SameLine(); HelpMarker("Minimum time before accepting another trigger event (stabilizes multi-pulse / burst waveforms).");
             }
             if (ImGui::CollapsingHeader("Input Conditioning")) {
                 const char* coupling[] = {"DC", "AC"};
@@ -158,17 +185,22 @@ void UIManager::renderLayerEditor(AppState& state) {
                 ImGui::SliderFloat("AC Cutoff (Hz)", &xy.acCutoffHz, 0.1f, 100.0f, "%.1f");
                 ImGui::SliderFloat("Bandwidth (Hz)", &xy.bandwidthHz, 100.0f, 24000.0f, "%.0f");
             }
-            if (ImGui::CollapsingHeader("Beam / Z")) {
+            if (ImGui::CollapsingHeader("Beam / Z", ImGuiTreeNodeFlags_DefaultOpen)) {
                 const char* zModes[] = {"Derived", "Explicit", "Derived x Explicit"};
                 int zMode = std::clamp(static_cast<int>(xy.zMode), 0, 2);
                 ImGui::SliderFloat("Beam Intensity", &xy.beamIntensity, 0.0f, 4.0f);
                 ImGui::SliderFloat("Trace Thickness", &xy.traceWidth, 0.5f, 10.0f);
                 ImGui::SliderFloat("Bloom", &xy.bloom, 0.0f, 5.0f);
+                ImGui::SliderFloat("Beam Head Size", &xy.beamHeadSize, 0.0f, 20.0f, "%.1f px");
+                ImGui::SameLine(); HelpMarker("Adds a luminous electron-beam spot at the active trace head (0 disables).");
                 ImGui::SliderFloat("Dwell Effect", &xy.dwellEffect, 0.0f, 1.0f);
+                ImGui::SliderFloat("Density Effect", &xy.densityEffect, 0.0f, 1.0f);
+                ImGui::SameLine(); HelpMarker("Boosts intensity on slow, dense curves and Lissajous knots relative to fast sweeps.");
                 ImGui::SliderFloat("Max Connected Jump", &xy.jumpBlanking, 0.02f, 1.0f);
                 ImGui::SameLine(); HelpMarker("Lower values blank more long beam jumps. Start around 0.08 to remove retrace-like connectors.");
                 if (ImGui::Combo("Z Mode", &zMode, zModes, 3)) xy.zMode = static_cast<ZIntensityMode>(zMode);
                 ImGui::SliderFloat("Z Gain", &xy.zGain, 0.0f, 2.0f);
+                ImGui::SliderFloat("Z Offset", &xy.zOffset, -1.0f, 1.0f);
             }
             if (ImGui::CollapsingHeader("Transform")) {
                 ImGui::SliderFloat("Rotation", &xy.rotationDegrees, -180.0f, 180.0f);

@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <cstdlib>
 #include <iostream>
 #include <utility>
@@ -31,8 +32,12 @@ void RenderManager::syncBackgroundImage(const std::string& path, Visualizer& vis
     m_loadedBackgroundPath = path;
 }
 
-void RenderManager::syncOverlayFonts(const MediaOverlayLayer& overlay, Visualizer& visualizer) {
-    if (!overlay.enabled) return;
+void RenderManager::syncOverlayFonts(
+    const MediaOverlayLayer& overlay,
+    bool needScopeHudFont,
+    Visualizer& visualizer
+) {
+    if (!overlay.enabled && !needScopeHudFont) return;
     const std::string overlayFont = !overlay.fontPath.empty()
         ? overlay.fontPath
         : Utf8Paths::toUtf8(AssetPaths::defaultFont());
@@ -40,12 +45,93 @@ void RenderManager::syncOverlayFonts(const MediaOverlayLayer& overlay, Visualize
         visualizer.loadFont(overlayFont);
         m_loadedOverlayFont = overlayFont;
     }
+    if (!overlay.enabled) return;
     const std::string lyricsFont = !overlay.lyricsFontPath.empty()
         ? overlay.lyricsFontPath
         : overlayFont;
     if (!lyricsFont.empty() && m_loadedLyricsFont != lyricsFont) {
         visualizer.loadLyricsFont(lyricsFont);
         m_loadedLyricsFont = lyricsFont;
+    }
+}
+
+void RenderManager::renderMeasurementHud(
+    const AppState& state,
+    Visualizer& visualizer,
+    const VisualizerLayer& xyLayer
+) {
+    const auto& m = xyLayer.xyMeasurements;
+    const auto& xy = xyLayer.xy;
+
+    const char* acqLabel = xy.persistence
+        ? "CONT"
+        : (xy.triggerMode == TriggerMode::Normal ? "TRIG-NORM" : "TRIG-AUTO");
+    const char* cplX = xy.couplingX == CouplingMode::AC ? "AC" : "DC";
+    const char* cplY = xy.couplingY == CouplingMode::AC ? "AC" : "DC";
+
+    char line1[128]{};
+    char line2[128]{};
+    char line3[128]{};
+    char line4[128]{};
+    std::snprintf(
+        line1, sizeof(line1), "XY %-9s  %s/%s  %dx",
+        acqLabel, cplX, cplY, xy.oversampling >= 4 ? 4 : (xy.oversampling >= 2 ? 2 : 1));
+    if (m.ratioNumerator > 0 && m.ratioDenominator > 0) {
+        std::snprintf(
+            line2, sizeof(line2), "FREQ  X:%7.1f Hz  Y:%7.1f Hz  (%d:%d)",
+            m.frequencyX, m.frequencyY, m.ratioNumerator, m.ratioDenominator);
+    } else {
+        std::snprintf(
+            line2, sizeof(line2), "FREQ  X:%7.1f Hz  Y:%7.1f Hz",
+            m.frequencyX, m.frequencyY);
+    }
+    if (m.phaseValid) {
+        std::snprintf(
+            line3, sizeof(line3), "PHASE %+6.1f deg   CONF:%3.0f%%",
+            m.phaseDegrees, m.confidence * 100.0f);
+    } else {
+        std::snprintf(
+            line3, sizeof(line3), "PHASE     --       CONF:%3.0f%%",
+            m.confidence * 100.0f);
+    }
+    std::snprintf(
+        line4, sizeof(line4), "PK %.2f/%.2f   RMS %.2f/%.2f",
+        m.peakX, m.peakY, m.rmsX, m.rmsY);
+
+    const std::array<std::string, 4> lines = {line1, line2, line3, line4};
+    const float resScale = static_cast<float>(std::max(visualizer.viewportHeight(), 1)) / 1080.0f;
+    const float textScale = 0.44f * resScale;
+
+    float maxWidth = 0.0f;
+    for (const auto& line : lines) {
+        maxWidth = std::max(maxWidth, visualizer.measureTextWidth(line, textScale, VisualizerFont::Primary));
+    }
+
+    const float padX = 0.024f;
+    const float lineStep = 0.046f;
+    const float boxHalfW = std::min(0.92f, maxWidth * 0.5f + padX);
+    const float boxHalfH = (static_cast<float>(lines.size()) * lineStep + 0.032f) * 0.5f;
+    const float leftEdge = -0.95f;
+    const float topEdge = state.config.mediaOverlay.enabled ? 0.68f : 0.94f;
+    const float centerX = leftEdge + boxHalfW;
+    const float centerY = topEdge - boxHalfH;
+
+    const float bgColor[4] = {0.02f, 0.05f, 0.04f, 0.74f};
+    const float headerColor[4] = {0.42f, 1.0f, 0.68f, 0.96f};
+    const float bodyColor[4] = {0.82f, 0.96f, 0.88f, 0.92f};
+
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    visualizer.drawRoundedRect(centerX, centerY, boxHalfW, boxHalfH, 0.14f, bgColor);
+
+    const float textX = leftEdge + padX;
+    float baselineY = topEdge - 0.044f;
+    for (size_t i = 0; i < lines.size(); ++i) {
+        visualizer.drawText(
+            lines[i], textX, baselineY, textScale,
+            i == 0 ? headerColor : bodyColor,
+            VisualizerFont::Primary);
+        baselineY -= lineStep;
     }
 }
 
@@ -134,8 +220,11 @@ void RenderManager::executePipeline(
     const auto& cfg = state.config;
     const auto& fx = state.fx;
 
+    const bool showScopeHud =
+        cfg.oscilloscopeDisplay.measurementOverlay &&
+        (!inputs.isOffline || cfg.oscilloscopeDisplay.overlayInVideo);
     syncBackgroundImage(cfg.backgroundImagePath, visualizer);
-    syncOverlayFonts(cfg.mediaOverlay, visualizer);
+    syncOverlayFonts(cfg.mediaOverlay, showScopeHud, visualizer);
 
     const GLuint overlayBackgroundTexture = inputs.overlayBackground->update(
         cfg.mediaOverlay.enabled ? cfg.mediaOverlay.backgroundType : OverlayBackgroundType::None,
@@ -153,62 +242,49 @@ void RenderManager::executePipeline(
     GLint targetFramebuffer = 0;
     glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &targetFramebuffer);
 
+    bool hasVisibleXY = false;
     bool usePersistence = false;
     bool useBloom = false;
+    float maxBloom = 0.0f;
     for (const auto& l : cfg.layers) {
         if (l.visible && isXYShape(l.shape)) {
+            hasVisibleXY = true;
             usePersistence |= l.xy.persistence;
-            useBloom |= l.xy.bloom > 0.01f;
+            if (l.xy.bloom > 0.01f) {
+                useBloom = true;
+                maxBloom = std::max(maxBloom, l.xy.bloom);
+            }
         }
     }
-    const bool hasBackground = cfg.zenKunModeEnabled || overlayBackgroundTexture != 0;
-    const bool usePersistenceBuffer = usePersistence || hasBackground;
     const bool useSlowPhosphor =
         usePersistence && cfg.oscilloscopeDisplay.phosphorSlowWeight > 0.001f;
     const bool useOverlayBlur =
         cfg.mediaOverlay.enabled &&
         cfg.mediaOverlay.style.blurredLyricsBand &&
         cfg.mediaOverlay.style.lyricsBandOpacity > 0.001f;
-    const bool useSceneBuffer = useBloom || useOverlayBlur;
+    // Route all XY scenes through the HDR scene buffer so CRT hot-core tone mapping
+    // and multi-scale optical bloom always operate on linear HDR values.
+    const bool useSceneBuffer = hasVisibleXY || useBloom || useOverlayBlur;
 
     visualizer.setViewportSize(inputs.width, inputs.height);
 
-    // 1. Persistence / Background pass (skipped when neither persistence nor background is active).
-    if (usePersistenceBuffer) {
+    // 1. Fast Phosphor Persistence pass (pure XY traces on black; backgrounds stay isolated).
+    if (usePersistence) {
         visualizer.setupPersistence(inputs.width, inputs.height);
-        if (!inputs.isOffline && usePersistence && !m_wasUsingPersistence) {
+        if (!inputs.isOffline && !m_wasUsingPersistence) {
             visualizer.clearPersistence();
         }
         visualizer.beginPersistence();
-
-        if (usePersistence) {
-            visualizer.drawFullscreenDimmer(phosphorDecay(cfg.oscilloscopeDisplay, inputs.deltaTime));
-        } else {
-            glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-            glClear(GL_COLOR_BUFFER_BIT);
-        }
-
-        if (cfg.zenKunModeEnabled) {
-            visualizer.drawBackground(
-                fx.currentBgScale + fx.currentShakeZoom,
-                fx.currentShakeX,
-                fx.currentShakeY,
-                fx.currentShakeTilt);
-        }
-        renderMediaBackground(
-            state, visualizer, *inputs.overlayBackground,
-            overlayBackgroundTexture, inputs.width, inputs.height);
-
-        if (usePersistence) {
-            glEnable(GL_BLEND);
-            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-            renderPersistentLayers(state, inputs.audioEngine, visualizer, inputs.offlineContinuousXY);
-        }
-
+        glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_FALSE);
+        visualizer.drawFullscreenDimmer(phosphorDecay(cfg.oscilloscopeDisplay, inputs.deltaTime));
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        renderPersistentLayers(state, inputs.audioEngine, visualizer, inputs.offlineContinuousXY);
+        glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
         visualizer.endPersistence();
     }
 
-    // Slow phosphor afterglow pass (only when persistent XY layers are active).
+    // 1b. Slow Phosphor Afterglow pass (frame-rate-independent exponential EMA of fast phosphor).
     if (useSlowPhosphor) {
         m_slowPhosphorBuffer.resize(inputs.width, inputs.height);
         m_slowPhosphorBuffer.bind();
@@ -217,18 +293,21 @@ void RenderManager::executePipeline(
             glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
             glClear(GL_COLOR_BUFFER_BIT);
         }
-        visualizer.drawFullscreenDimmer(1.0f - std::exp(-std::max(inputs.deltaTime, 0.0f) * 1000.0f /
-            std::max(cfg.oscilloscopeDisplay.phosphorSlowDecayMs, 1.0f)));
+        const float slowAlpha = 1.0f - std::exp(
+            -std::max(inputs.deltaTime, 0.0f) * 1000.0f /
+            std::max(cfg.oscilloscopeDisplay.phosphorSlowDecayMs, 1.0f));
+        glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_FALSE);
         glEnable(GL_BLEND);
-        glBlendFunc(GL_SRC_ALPHA, GL_ONE);
-        visualizer.drawTexture(visualizer.persistenceTexture(), 0.08f);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        visualizer.drawTexture(visualizer.persistenceTexture(), slowAlpha);
+        glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
         Framebuffer::unbind();
     }
     if (!inputs.isOffline) {
         m_wasUsingPersistence = usePersistence;
     }
 
-    // 2. Scene pass (HDR FBO only when bloom or blurred lyrics band needs the scene texture).
+    // 2. Scene pass (HDR FBO when bloom or blurred lyrics band needs the scene texture).
     if (useSceneBuffer) {
         m_sceneBuffer.resize(inputs.width, inputs.height);
         m_sceneBuffer.bind();
@@ -239,7 +318,21 @@ void RenderManager::executePipeline(
     glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT);
 
-    if (cfg.oscilloscopeDisplay.graticuleEnabled) {
+    // Draw backgrounds cleanly behind the graticule and phosphor buffers.
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    if (cfg.zenKunModeEnabled) {
+        visualizer.drawBackground(
+            fx.currentBgScale + fx.currentShakeZoom,
+            fx.currentShakeX,
+            fx.currentShakeY,
+            fx.currentShakeTilt);
+    }
+    renderMediaBackground(
+        state, visualizer, *inputs.overlayBackground,
+        overlayBackgroundTexture, inputs.width, inputs.height);
+
+    if (hasVisibleXY && cfg.oscilloscopeDisplay.graticuleEnabled) {
         visualizer.setGridEnabled(true);
         visualizer.setGridDivisions(
             cfg.oscilloscopeDisplay.graticuleColumns,
@@ -249,13 +342,18 @@ void RenderManager::executePipeline(
     }
 
     glEnable(GL_BLEND);
-    if (usePersistenceBuffer) {
+    if (usePersistence) {
+        const float sat = std::clamp(cfg.oscilloscopeDisplay.phosphorSaturation, 0.0f, 3.0f);
+        const float shift = std::clamp(cfg.oscilloscopeDisplay.decayColorShift, -1.0f, 1.0f);
         glBlendFunc(GL_ONE, GL_ONE);
-        visualizer.drawPersistenceBuffer();
+        visualizer.drawPhosphorTexture(visualizer.persistenceTexture(), 1.0f, sat, 0.0f);
         if (useSlowPhosphor) {
-            visualizer.drawTexture(
+            glBlendFunc(GL_SRC_ALPHA, GL_ONE);
+            visualizer.drawPhosphorTexture(
                 m_slowPhosphorBuffer.texture(),
-                cfg.oscilloscopeDisplay.phosphorSlowWeight);
+                cfg.oscilloscopeDisplay.phosphorSlowWeight,
+                sat,
+                shift);
         }
     }
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
@@ -264,23 +362,15 @@ void RenderManager::executePipeline(
         inputs.sampleRate, inputs.deltaTime,
         inputs.offlineSnapshotXY, inputs.offlineMono);
 
-    // 3. Output pass + Bloom.
+    // 3. Unified HDR Output Composite + Multi-Scale CRT Bloom + Hot-Core Tone Mapping.
     if (useSceneBuffer) {
-        glBindFramebuffer(GL_FRAMEBUFFER, static_cast<GLuint>(targetFramebuffer));
-        glViewport(0, 0, inputs.width, inputs.height);
-        glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-        glClear(GL_COLOR_BUFFER_BIT);
-        glBlendFunc(GL_ONE, GL_ONE);
-        visualizer.drawTexture(m_sceneBuffer.texture());
-
-        if (useBloom) {
-            m_bloomRenderer.render(
-                m_sceneBuffer.texture(),
-                static_cast<GLuint>(targetFramebuffer),
-                inputs.width,
-                inputs.height);
-        }
-        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        m_bloomRenderer.composite(
+            m_sceneBuffer.texture(),
+            static_cast<GLuint>(targetFramebuffer),
+            inputs.width,
+            inputs.height,
+            useBloom,
+            std::clamp(maxBloom, 0.0f, 5.0f));
     }
 
     // 4. Native OpenGL Media Overlay pass (shared across live & offline exports).
@@ -312,6 +402,16 @@ void RenderManager::executePipeline(
             glViewport(0, 0, inputs.width, inputs.height);
         }
         m_overlayRenderer.render(visualizer, cfg.mediaOverlay.style, frame);
+    }
+
+    // 5. Optional Oscilloscope Measurement HUD overlay (live + optional offline video).
+    if (hasVisibleXY && showScopeHud) {
+        for (const auto& layer : cfg.layers) {
+            if (layer.visible && isXYShape(layer.shape)) {
+                renderMeasurementHud(state, visualizer, layer);
+                break;
+            }
+        }
     }
 }
 
@@ -436,9 +536,14 @@ void RenderManager::renderOfflineFrame(
         m_offlineContinuousScratch.discontinuityGeneration = 1;
         m_offlineContinuousScratch.hasZ = false;
         m_offlineContinuousScratch.dropped = false;
-        const size_t continuousFrames = std::min(
-            snapshotFrames,
-            static_cast<size_t>(std::ceil(deltaTime * sampleRate)));
+        const int frameIdx = state.fx.videoStatus.currentFrame;
+        const double fps = static_cast<double>(std::max(state.config.videoSettings.fps, 1));
+        const auto nextFrameStart = static_cast<std::uint64_t>(
+            static_cast<double>(frameIdx + 1) * static_cast<double>(sampleRate) / fps);
+        const size_t exactSpan = nextFrameStart > audioStartFrame
+            ? static_cast<size_t>(nextFrameStart - audioStartFrame)
+            : static_cast<size_t>(std::max(1.0, std::round(static_cast<double>(deltaTime) * static_cast<double>(sampleRate))));
+        const size_t continuousFrames = std::min(snapshotFrames, exactSpan);
         m_offlineContinuousScratch.samples.resize(continuousFrames);
         for (size_t i = 0; i < continuousFrames; ++i) {
             m_offlineContinuousScratch.samples[i] = {stereoBuffer[i * 2], stereoBuffer[i * 2 + 1], 1.0f};
@@ -640,6 +745,7 @@ void RenderManager::renderPersistentLayers(
         visualizer.setColor(layer.color[0], layer.color[1], layer.color[2], layer.color[3]);
         visualizer.setShape(layer.shape);
         visualizer.setBloomIntensity(layer.xy.bloom);
+        visualizer.setBeamHeadSize(layer.xy.beamHeadSize);
         visualizer.setTraceWidth(layer.xy.traceWidth);
         visualizer.renderXY(trace);
     }
@@ -682,6 +788,7 @@ void RenderManager::renderDirectLayers(
             visualizer.setColor(layer.color[0], layer.color[1], layer.color[2], layer.color[3]);
             visualizer.setShape(layer.shape);
             visualizer.setBloomIntensity(layer.xy.bloom);
+            visualizer.setBeamHeadSize(layer.xy.beamHeadSize);
             visualizer.setTraceWidth(layer.xy.traceWidth);
             visualizer.renderXY(trace);
             continue;

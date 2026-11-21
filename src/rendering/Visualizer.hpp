@@ -37,6 +37,7 @@ public:
     [[nodiscard]] int viewportWidth() const noexcept { return m_viewportWidth; }
     [[nodiscard]] int viewportHeight() const noexcept { return m_viewportHeight; }
     void setBloomIntensity(float intensity) { m_bloomIntensity = intensity; }
+    void setBeamHeadSize(float size) { m_beamHeadSize = size; }
     void setGridEnabled(bool enabled) { m_showGrid = enabled; }
     void setGridDivisions(int columns, int rows) { m_gridColumns = columns; m_gridRows = rows; }
     void setTraceWidth(float width) { m_style.traceWidth = width; }
@@ -50,6 +51,11 @@ public:
     void endPersistence();
     void drawPersistenceBuffer();
     void drawTexture(GLuint texture, float opacity = 1.0f);
+    void drawPhosphorTexture(
+        GLuint texture,
+        float opacity = 1.0f,
+        float saturation = 1.0f,
+        float colorShift = 0.0f);
     void drawTextureRegion(
         GLuint texture, float centerX, float centerY, float halfWidth, float halfHeight,
         float textureX, float textureY, float textureWidth, float textureHeight,
@@ -85,6 +91,7 @@ private:
     int m_viewportWidth = 1920;
     int m_viewportHeight = 1080;
     float m_bloomIntensity = 1.0f;
+    float m_beamHeadSize = 0.0f;
     bool m_showGrid = true;
     int m_gridColumns = 10;
     int m_gridRows = 8;

@@ -15,9 +15,13 @@ void QuadRenderer::cacheUniforms() noexcept {
     m_cornerRadiusLoc = glGetUniformLocation(m_program, "uCornerRadius");
     m_aspectLoc = glGetUniformLocation(m_program, "uAspect");
     m_texRectLoc = glGetUniformLocation(m_program, "uTexRect");
+    m_saturationLoc = glGetUniformLocation(m_program, "uSaturation");
+    m_colorShiftLoc = glGetUniformLocation(m_program, "uColorShift");
 
     glUseProgram(m_program);
     if (m_textureLoc != -1) glUniform1i(m_textureLoc, 0);
+    if (m_saturationLoc != -1) glUniform1f(m_saturationLoc, 1.0f);
+    if (m_colorShiftLoc != -1) glUniform1f(m_colorShiftLoc, 0.0f);
     glUseProgram(0);
 }
 
@@ -36,6 +40,15 @@ bool QuadRenderer::reloadShaders(bool force, std::string* errorOut) {
 }
 
 void QuadRenderer::drawTexture(GLuint texture, float opacity) const {
+    drawPhosphorTexture(texture, opacity, 1.0f, 0.0f);
+}
+
+void QuadRenderer::drawPhosphorTexture(
+    GLuint texture,
+    float opacity,
+    float saturation,
+    float colorShift
+) const {
     if (texture == 0) return;
     glUseProgram(m_program);
     glUniform1i(m_useTextureLoc, 1);
@@ -46,10 +59,14 @@ void QuadRenderer::drawTexture(GLuint texture, float opacity) const {
     glUniform1f(m_rotationLoc, 0.0f);
     glUniform1f(m_cornerRadiusLoc, 0.0f);
     glUniform4f(m_texRectLoc, 0.0f, 0.0f, 1.0f, 1.0f);
+    if (m_saturationLoc != -1) glUniform1f(m_saturationLoc, saturation);
+    if (m_colorShiftLoc != -1) glUniform1f(m_colorShiftLoc, colorShift);
 
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, texture);
     m_quad.draw();
+    if (m_saturationLoc != -1) glUniform1f(m_saturationLoc, 1.0f);
+    if (m_colorShiftLoc != -1) glUniform1f(m_colorShiftLoc, 0.0f);
     glUseProgram(0);
 }
 

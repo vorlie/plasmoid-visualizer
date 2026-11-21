@@ -4,6 +4,7 @@ Visualizer::Visualizer() {
     m_pipeline.initialize();
     m_quadRenderer.initialize();
     m_textRenderer.initialize();
+    m_xyTraceRenderer.initialize();
 
     glEnable(GL_LINE_SMOOTH);
     glEnable(GL_MULTISAMPLE);
@@ -19,12 +20,14 @@ Visualizer::Visualizer() {
 bool Visualizer::reloadShaders(bool force, std::string* errorOut) {
     std::string pipelineErr;
     std::string quadErr;
+    std::string xyErr;
     const bool pipelineReloaded = m_pipeline.reloadShaders(force, &pipelineErr);
     const bool quadReloaded = m_quadRenderer.reloadShaders(force, &quadErr);
-    if (errorOut && (!pipelineErr.empty() || !quadErr.empty())) {
-        *errorOut = !pipelineErr.empty() ? pipelineErr : quadErr;
+    const bool xyReloaded = m_xyTraceRenderer.reloadShaders(force, &xyErr);
+    if (errorOut && (!pipelineErr.empty() || !quadErr.empty() || !xyErr.empty())) {
+        *errorOut = !pipelineErr.empty() ? pipelineErr : (!quadErr.empty() ? quadErr : xyErr);
     }
-    return pipelineReloaded || quadReloaded;
+    return pipelineReloaded || quadReloaded || xyReloaded;
 }
 
 void Visualizer::setColor(float r, float g, float b, float a) {
@@ -72,6 +75,15 @@ void Visualizer::drawPersistenceBuffer() {
 
 void Visualizer::drawTexture(GLuint texture, float opacity) {
     m_quadRenderer.drawTexture(texture, opacity);
+}
+
+void Visualizer::drawPhosphorTexture(
+    GLuint texture,
+    float opacity,
+    float saturation,
+    float colorShift
+) {
+    m_quadRenderer.drawPhosphorTexture(texture, opacity, saturation, colorShift);
 }
 
 void Visualizer::drawTextureRegion(
@@ -154,7 +166,7 @@ void Visualizer::render(const std::vector<float>& magnitudes) {
 
 void Visualizer::renderXY(const XYTraceBatch& trace) {
     m_xyTraceRenderer.renderTrace(
-        m_pipeline, trace, m_viewportWidth, m_viewportHeight,
-        m_style.traceWidth, m_bloomIntensity,
+        trace, m_viewportWidth, m_viewportHeight,
+        m_style.traceWidth, m_bloomIntensity, m_beamHeadSize,
         m_style.r, m_style.g, m_style.b, m_style.a);
 }

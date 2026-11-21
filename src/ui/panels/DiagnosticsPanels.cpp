@@ -115,7 +115,16 @@ void UIManager::renderGlobalSettings(AppState& state) {
             ImGui::SliderInt("Grid Rows", &scope.graticuleRows, 1, 20);
             ImGui::SliderFloat("Fast Decay (ms)", &scope.phosphorFastDecayMs, 5.0f, 500.0f);
             ImGui::SliderFloat("Slow Decay (ms)", &scope.phosphorSlowDecayMs, 20.0f, 5000.0f);
-            ImGui::SliderFloat("Slow Phosphor Weight", &scope.phosphorSlowWeight, 0.0f, 1.0f);
+            ImGui::SliderFloat("Slow Phosphor Weight", &scope.phosphorSlowWeight, 0.0f, 1.5f);
+            ImGui::SliderFloat("Phosphor Saturation", &scope.phosphorSaturation, 0.0f, 2.5f);
+            ImGui::SliderFloat("Decay Color Shift", &scope.decayColorShift, -1.0f, 1.0f);
+            ImGui::SameLine(); HelpMarker("Shifts the slow phosphor afterglow hue as it decays (classic P31/P7 CRT trail tint).");
+            ImGui::Checkbox("Measurement HUD", &scope.measurementOverlay);
+            if (scope.measurementOverlay) {
+                ImGui::Indent();
+                ImGui::Checkbox("Include HUD in Video Export", &scope.overlayInVideo);
+                ImGui::Unindent();
+            }
         }
 
         ImGui::Text("Audio Input");

@@ -112,7 +112,14 @@ private:
     };
 
     void syncBackgroundImage(const std::string& path, Visualizer& visualizer);
-    void syncOverlayFonts(const MediaOverlayLayer& overlay, Visualizer& visualizer);
+    void syncOverlayFonts(
+        const MediaOverlayLayer& overlay,
+        bool needScopeHudFont,
+        Visualizer& visualizer);
+    void renderMeasurementHud(
+        const AppState& state,
+        Visualizer& visualizer,
+        const VisualizerLayer& xyLayer);
     void updateBeatEffects(AppState& state, AnalysisEngine& analysisEngine, float sampleRate, float deltaTime);
     bool ensureCaptureFramebuffer(int width, int height);
     void executePipeline(

@@ -20,6 +20,11 @@ public:
     bool reloadShaders(bool force = false, std::string* errorOut = nullptr);
 
     void drawTexture(GLuint texture, float opacity = 1.0f) const;
+    void drawPhosphorTexture(
+        GLuint texture,
+        float opacity = 1.0f,
+        float saturation = 1.0f,
+        float colorShift = 0.0f) const;
     void drawTextureRegion(
         GLuint texture,
         float centerX,
@@ -59,6 +64,8 @@ private:
     GLint m_cornerRadiusLoc = -1;
     GLint m_aspectLoc = -1;
     GLint m_texRectLoc = -1;
+    GLint m_saturationLoc = -1;
+    GLint m_colorShiftLoc = -1;
 
     FullscreenQuad m_quad;
     Texture2D m_backgroundTexture;

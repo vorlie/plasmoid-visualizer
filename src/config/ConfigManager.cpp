@@ -32,6 +32,7 @@ toml::table writeXYSettings(const XYLayerSettings& xy) {
         {"trigger_source", static_cast<int>(xy.triggerSource)}, {"trigger_edge", static_cast<int>(xy.triggerEdge)},
         {"trigger_level", xy.triggerLevel}, {"trigger_hysteresis", xy.triggerHysteresis},
         {"trigger_holdoff_ms", xy.triggerHoldoffMs}, {"jump_blanking", xy.jumpBlanking},
+        {"oversampling", xy.oversampling},
         {"trace_width", xy.traceWidth}, {"bloom", xy.bloom}, {"beam_head_size", xy.beamHeadSize},
         {"beam_intensity", xy.beamIntensity}, {"dwell_effect", xy.dwellEffect},
         {"density_effect", xy.densityEffect}, {"z_mode", static_cast<int>(xy.zMode)},
@@ -62,6 +63,8 @@ void readXYSettings(const toml::table& table, XYLayerSettings& xy) {
     xy.triggerHysteresis = std::clamp(table["trigger_hysteresis"].value_or(0.02f), 0.0f, 1.0f);
     xy.triggerHoldoffMs = std::clamp(table["trigger_holdoff_ms"].value_or(0.0f), 0.0f, 1000.0f);
     xy.jumpBlanking = std::clamp(table["jump_blanking"].value_or(0.35f), 0.01f, 2.0f);
+    const int rawOversampling = table["oversampling"].value_or(1);
+    xy.oversampling = rawOversampling >= 4 ? 4 : (rawOversampling >= 2 ? 2 : 1);
     xy.traceWidth = std::clamp(table["trace_width"].value_or(2.0f), 0.5f, 20.0f);
     xy.bloom = std::clamp(table["bloom"].value_or(1.0f), 0.0f, 5.0f);
     xy.beamHeadSize = std::clamp(table["beam_head_size"].value_or(0.0f), 0.0f, 50.0f);

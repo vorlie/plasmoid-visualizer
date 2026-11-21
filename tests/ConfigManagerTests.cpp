@@ -87,6 +87,7 @@ bool testRoundTrip(const fs::path& dir) {
     layer.xy.bloom = 1.75f;
     layer.xy.gainX = 1.5f;
     layer.xy.rotationDegrees = 45.0f;
+    layer.xy.oversampling = 4;
     saved.layers.push_back(layer);
 
     const std::string path = Utf8Paths::toUtf8(dir / "roundtrip.toml");
@@ -122,7 +123,8 @@ bool testRoundTrip(const fs::path& dir) {
     if (l.id != 7 || l.name != "Bass Bars" || l.config.numBars != 64 ||
         l.shape != VisualizerShape::Curve || l.channel != AudioChannel::Left ||
         l.barAnchor != BarAnchor::Center || l.xy.persistence != false ||
-        !near(l.xy.bloom, 1.75f) || !near(l.xy.rotationDegrees, 45.0f)) {
+        !near(l.xy.bloom, 1.75f) || !near(l.xy.rotationDegrees, 45.0f) ||
+        l.xy.oversampling != 4) {
         std::cerr << "ConfigManager round-trip mismatch in layer fields\n";
         return false;
     }

@@ -84,6 +84,7 @@ struct XYLayerSettings {
     float triggerHysteresis = 0.02f;
     float triggerHoldoffMs = 0.0f;
     float jumpBlanking = 0.35f;
+    int oversampling = 1; // 1 = Off, 2 = 2x, 4 = 4x centripetal Catmull-Rom curve reconstruction
 
     float traceWidth = 2.0f;
     float bloom = 1.0f;
